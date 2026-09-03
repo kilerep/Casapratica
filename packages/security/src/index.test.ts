@@ -1,0 +1,3 @@
+import { describe, expect, it } from "vitest";
+import { TokenCipher, encryptionKeySchema } from "./index.js";
+describe("TokenCipher", () => { it("criptografa e autentica tokens em repouso", () => { const cipher = new TokenCipher(Buffer.alloc(32, 7)); const encrypted = cipher.encrypt("token-secreto"); expect(encrypted.ciphertext.toString()).not.toContain("token-secreto"); expect(cipher.decrypt(encrypted)).toBe("token-secreto"); }); it("exige chave Base64 de 32 bytes", () => { expect(encryptionKeySchema.safeParse(Buffer.alloc(32).toString("base64")).success).toBe(true); expect(encryptionKeySchema.safeParse(Buffer.alloc(16).toString("base64")).success).toBe(false); }); });

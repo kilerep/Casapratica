@@ -1,0 +1,554 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum ProductStatus {
+  candidate
+  under_review
+  approved
+  test
+  rejected
+  active
+  paused
+  retired
+}
+enum PublicationStatus {
+  draft
+  awaiting_approval
+  approved
+  scheduled
+  publishing
+  published
+  failed
+  cancelled
+}
+enum ContentStatus {
+  draft
+  ready
+  archived
+}
+enum CreativeAssetStatus {
+  draft
+  ready
+  archived
+}
+enum PlanStatus {
+  draft
+  active
+  completed
+  cancelled
+}
+enum RunStatus {
+  pending
+  running
+  succeeded
+  failed
+  cancelled
+}
+enum IntegrationStatus {
+  disconnected
+  connected
+  degraded
+  revoked
+}
+enum CapabilityStatus {
+  unavailable
+  available
+  limited
+}
+
+model Workspace {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  slug String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  categories Category[]
+  sellers Seller[]
+  products Product[]
+  researchRuns ProductResearchRun[]
+  contents Content[]
+  creativeAssets CreativeAsset[]
+  dailyPlans DailyPlan[]
+  weeklyPlans WeeklyPlan[]
+  publicationQueue PublicationQueueItem[]
+  publications Publication[]
+  metricSnapshots MetricSnapshot[]
+  conversions Conversion[]
+  experiments Experiment[]
+  strategies Strategy[]
+  integrationAccounts IntegrationAccount[]
+  oauthStates OAuthState[]
+  agentSessions AgentSession[]
+  auditLogs AuditLog[]
+}
+
+model Category {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  name String
+  slug String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  products Product[]
+  candidates ProductCandidate[]
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+model Seller {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  marketplace String
+  externalId String
+  name String?
+  reputation Decimal? @db.Decimal(5, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  products Product[]
+  @@unique([workspaceId, marketplace, externalId])
+}
+
+model Product {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  marketplace String
+  externalId String
+  name String
+  description String?
+  categoryId String? @db.Uuid
+  canonicalUrl String
+  affiliateUrl String?
+  price Decimal? @db.Decimal(14, 2)
+  currency String?
+  rating Decimal? @db.Decimal(3, 2)
+  reviewCount Int?
+  salesCount Int?
+  sellerId String? @db.Uuid
+  availability String?
+  thumbnailUrl String?
+  status ProductStatus @default(candidate)
+  firstSeenAt DateTime
+  lastCheckedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  seller Seller? @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  candidates ProductCandidate[]
+  comparisons ProductComparison[]
+  scores ProductScore[]
+  affiliateLinks AffiliateLink[]
+  contents Content[]
+  queueItems PublicationQueueItem[]
+  publications Publication[]
+  metricSnapshots MetricSnapshot[]
+  conversions Conversion[]
+  @@unique([workspaceId, marketplace, externalId])
+  @@index([workspaceId, status])
+  @@index([categoryId])
+}
+
+model ProductResearchRun {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  query String
+  queries String[]
+  categories String[]
+  provider String
+  candidateCount Int @default(0)
+  approvedCount Int @default(0)
+  testCount Int @default(0)
+  rejectedCount Int @default(0)
+  reasons Json?
+  durationMs Int?
+  status RunStatus @default(pending)
+  startedAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  candidates ProductCandidate[]
+  comparisons ProductComparison[]
+  @@index([workspaceId, createdAt])
+}
+
+model ProductCandidate {
+  id String @id @default(uuid()) @db.Uuid
+  researchRunId String @db.Uuid
+  productId String? @db.Uuid
+  categoryId String? @db.Uuid
+  marketplace String
+  externalId String
+  sourceUrl String
+  capturedData Json
+  createdAt DateTime @default(now())
+  researchRun ProductResearchRun @relation(fields: [researchRunId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  @@unique([researchRunId, marketplace, externalId])
+}
+
+model ProductComparison {
+  id String @id @default(uuid()) @db.Uuid
+  researchRunId String @db.Uuid
+  productId String @db.Uuid
+  position Int?
+  notes String?
+  createdAt DateTime @default(now())
+  researchRun ProductResearchRun @relation(fields: [researchRunId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@unique([researchRunId, productId])
+}
+
+model ProductScore {
+  id String @id @default(uuid()) @db.Uuid
+  productId String @db.Uuid
+  score Decimal @db.Decimal(5, 2)
+  confidence Decimal @db.Decimal(5, 4)
+  availableFactors String[]
+  missingFactors String[]
+  factorScores Json
+  explanation String
+  calculatedAt DateTime @default(now())
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@index([productId, calculatedAt])
+}
+
+model AffiliateLink {
+  id String @id @default(uuid()) @db.Uuid
+  productId String @db.Uuid
+  provider String
+  url String
+  externalId String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@unique([productId, provider, url])
+}
+
+model Content {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  productId String? @db.Uuid
+  title String
+  body String
+  status ContentStatus @default(draft)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variants ContentVariant[]
+  creativeAssets CreativeAsset[]
+  queueItems PublicationQueueItem[]
+  publications Publication[]
+}
+
+model ContentVariant {
+  id String @id @default(uuid()) @db.Uuid
+  contentId String @db.Uuid
+  channel String
+  title String?
+  body String
+  metadata Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  queueItems PublicationQueueItem[]
+  publications Publication[]
+  @@index([contentId, channel])
+}
+
+model CreativeAsset {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  contentId String? @db.Uuid
+  kind String
+  storageKey String
+  mimeType String
+  width Int?
+  height Int?
+  status CreativeAssetStatus @default(draft)
+  metadata Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  content Content? @relation(fields: [contentId], references: [id], onDelete: SetNull)
+  queueItems PublicationQueueItem[]
+}
+
+model WeeklyPlan {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  weekStartsOn DateTime @db.Date
+  status PlanStatus @default(draft)
+  goals Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  dailyPlans DailyPlan[]
+  @@unique([workspaceId, weekStartsOn])
+}
+
+model DailyPlan {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  weeklyPlanId String? @db.Uuid
+  planDate DateTime @db.Date
+  status PlanStatus @default(draft)
+  goals Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  weeklyPlan WeeklyPlan? @relation(fields: [weeklyPlanId], references: [id], onDelete: SetNull)
+  @@unique([workspaceId, planDate])
+}
+
+model PublicationQueueItem {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  productId String? @db.Uuid
+  contentId String @db.Uuid
+  contentVariantId String? @db.Uuid
+  creativeAssetId String? @db.Uuid
+  channel String
+  status PublicationStatus @default(draft)
+  scheduledFor DateTime?
+  approvedAt DateTime?
+  approvedBy String?
+  attempts Int @default(0)
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  content Content @relation(fields: [contentId], references: [id], onDelete: Restrict)
+  contentVariant ContentVariant? @relation(fields: [contentVariantId], references: [id], onDelete: SetNull)
+  creativeAsset CreativeAsset? @relation(fields: [creativeAssetId], references: [id], onDelete: SetNull)
+  publication Publication?
+  @@index([workspaceId, status, scheduledFor])
+}
+
+model Publication {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  queueItemId String @unique @db.Uuid
+  productId String? @db.Uuid
+  contentId String @db.Uuid
+  contentVariantId String? @db.Uuid
+  channel String
+  status PublicationStatus
+  externalId String?
+  externalUrl String?
+  publishedAt DateTime?
+  failureReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  queueItem PublicationQueueItem @relation(fields: [queueItemId], references: [id], onDelete: Restrict)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  content Content @relation(fields: [contentId], references: [id], onDelete: Restrict)
+  contentVariant ContentVariant? @relation(fields: [contentVariantId], references: [id], onDelete: SetNull)
+  metricSnapshots MetricSnapshot[]
+  conversions Conversion[]
+}
+
+model MetricSnapshot {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  publicationId String? @db.Uuid
+  productId String? @db.Uuid
+  source String
+  observedAt DateTime
+  impressions Int?
+  clicks Int?
+  saves Int?
+  conversions Int?
+  revenue Decimal? @db.Decimal(14, 2)
+  currency String?
+  rawData Json?
+  createdAt DateTime @default(now())
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  publication Publication? @relation(fields: [publicationId], references: [id], onDelete: SetNull)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  @@index([workspaceId, source, observedAt])
+}
+
+model Conversion {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  publicationId String? @db.Uuid
+  productId String? @db.Uuid
+  source String
+  externalId String?
+  occurredAt DateTime
+  amount Decimal? @db.Decimal(14, 2)
+  commission Decimal? @db.Decimal(14, 2)
+  currency String?
+  createdAt DateTime @default(now())
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  publication Publication? @relation(fields: [publicationId], references: [id], onDelete: SetNull)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  @@unique([workspaceId, source, externalId])
+}
+
+model Experiment {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  name String
+  hypothesis String
+  status String
+  startsAt DateTime?
+  endsAt DateTime?
+  configuration Json
+  result Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Strategy {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  name String
+  version Int @default(1)
+  active Boolean @default(false)
+  configuration Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  decisions StrategyDecision[]
+  @@unique([workspaceId, name, version])
+}
+
+model StrategyDecision {
+  id String @id @default(uuid()) @db.Uuid
+  strategyId String @db.Uuid
+  decisionType String
+  subjectType String
+  subjectId String?
+  rationale String
+  inputs Json
+  outcome Json?
+  decidedAt DateTime @default(now())
+  strategy Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  @@index([strategyId, decidedAt])
+}
+
+model IntegrationAccount {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  provider String
+  externalAccountId String?
+  displayName String?
+  status IntegrationStatus @default(disconnected)
+  accessTokenCiphertext Bytes?
+  accessTokenIv Bytes?
+  accessTokenAuthTag Bytes?
+  refreshTokenCiphertext Bytes?
+  refreshTokenIv Bytes?
+  refreshTokenAuthTag Bytes?
+  tokenExpiresAt DateTime?
+  scopes String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  capabilities IntegrationCapability[]
+  @@unique([workspaceId, provider, externalAccountId])
+}
+
+model OAuthState {
+  id String @id @default(uuid()) @db.Uuid
+  stateHash String @unique
+  workspaceId String @db.Uuid
+  provider String
+  redirectUri String
+  verifierCiphertext Bytes
+  verifierIv Bytes
+  verifierAuthTag Bytes
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  consumedAt DateTime?
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  @@index([workspaceId, provider, expiresAt])
+}
+
+model IntegrationCapability {
+  id String @id @default(uuid()) @db.Uuid
+  integrationAccountId String @db.Uuid
+  capability String
+  status CapabilityStatus @default(unavailable)
+  checkedAt DateTime?
+  details Json?
+  integrationAccount IntegrationAccount @relation(fields: [integrationAccountId], references: [id], onDelete: Cascade)
+  @@unique([integrationAccountId, capability])
+}
+
+model AgentSession {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  agentName String
+  startedAt DateTime @default(now())
+  endedAt DateTime?
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runs AgentRun[]
+  messages ConversationMessage[]
+}
+
+model ConversationMessage {
+  id String @id @default(uuid()) @db.Uuid
+  agentSessionId String @db.Uuid
+  role String
+  content String
+  createdAt DateTime @default(now())
+  agentSession AgentSession @relation(fields: [agentSessionId], references: [id], onDelete: Cascade)
+  @@index([agentSessionId, createdAt])
+}
+
+model AgentRun {
+  id String @id @default(uuid()) @db.Uuid
+  agentSessionId String @db.Uuid
+  status RunStatus @default(pending)
+  objective String
+  startedAt DateTime?
+  completedAt DateTime?
+  errorCode String?
+  createdAt DateTime @default(now())
+  agentSession AgentSession @relation(fields: [agentSessionId], references: [id], onDelete: Cascade)
+  toolExecutions ToolExecution[]
+}
+
+model ToolExecution {
+  id String @id @default(uuid()) @db.Uuid
+  agentRunId String @db.Uuid
+  toolName String
+  status RunStatus @default(pending)
+  input Json
+  output Json?
+  errorCode String?
+  startedAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  agentRun AgentRun @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  @@index([agentRunId, createdAt])
+}
+
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  actorType String
+  actorId String?
+  action String
+  resourceType String
+  resourceId String?
+  metadata Json?
+  occurredAt DateTime @default(now())
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  @@index([workspaceId, occurredAt])
+}
