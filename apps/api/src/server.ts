@@ -5,6 +5,7 @@ import {
   loadAgentPrompts,
   OpenAIManagerRunner,
   registerContentOperationsTools,
+  registerAnalyticsTools,
   registerContentTools,
   registerCreativeStudioTools,
   registerFacebookStrategyTools,
@@ -24,6 +25,7 @@ import {
   PrismaPinterestStrategyRepository,
   PrismaResearchRepository,
   PrismaTraceRepository,
+  PrismaAnalyticsRepository,
 } from "@casapratica/database";
 import {
   FacebookPageProvider,
@@ -46,6 +48,7 @@ import {
   FacebookStrategyEngine,
   PinterestStrategyEngine,
   ProductResearchService,
+  PerformanceIntelligenceService,
   PublishingService,
 } from "@casapratica/strategy";
 import { buildApp } from "./app.js";
@@ -98,6 +101,7 @@ const creative = env.DEFAULT_WORKSPACE_ID
 const operationsRepository = env.DEFAULT_WORKSPACE_ID
   ? new PrismaOperationsRepository(prisma)
   : undefined;
+const analytics=env.DEFAULT_WORKSPACE_ID?new PerformanceIntelligenceService(new PrismaAnalyticsRepository(prisma)):undefined;
 const scheduler = env.REDIS_URL
   ? new BullMqPublicationScheduler(env.REDIS_URL)
   : undefined;
@@ -254,6 +258,7 @@ if (operations && env.DEFAULT_WORKSPACE_ID)
     status: (id) => operations.status(env.DEFAULT_WORKSPACE_ID!, id),
     alerts: () => operations.alerts(env.DEFAULT_WORKSPACE_ID!),
   });
+if(analytics&&env.DEFAULT_WORKSPACE_ID) registerAnalyticsTools(tools,analytics,env.DEFAULT_WORKSPACE_ID);
 let aiChat: AIChatService | undefined;
 if (env.OPENAI_API_KEY && env.DEFAULT_WORKSPACE_ID) {
   const system = createCasaPraticaAgentSystem(await loadAgentPrompts(), tools);
@@ -272,6 +277,7 @@ const app = buildApp({
   ...(facebook ? { facebook } : {}),
   ...(creative ? { creative } : {}),
   ...(operations ? { operations } : {}),
+  ...(analytics ? { analytics } : {}),
   ...(env.DEFAULT_WORKSPACE_ID
     ? { workspaceId: env.DEFAULT_WORKSPACE_ID }
     : {}),

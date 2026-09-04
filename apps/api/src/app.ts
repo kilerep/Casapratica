@@ -134,6 +134,9 @@ interface OperationsApiService {
   status(workspaceId: string, id: string): Promise<unknown>;
   alerts(workspaceId: string): Promise<unknown>;
 }
+interface AnalyticsApiService {
+  overview(w:string,p:{start:Date;end:Date}):Promise<unknown>; product(w:string,id:string,p:{start:Date;end:Date}):Promise<unknown>; category(w:string,id:string,p:{start:Date;end:Date}):Promise<unknown>; platform(w:string,id:"pinterest"|"facebook"|"business",p:{start:Date;end:Date}):Promise<unknown>; creativeComparison(w:string,ids:readonly string[],p:{start:Date;end:Date}):Promise<unknown>; winners(w:string,p:{start:Date;end:Date}):Promise<unknown>; underperformers(w:string,p:{start:Date;end:Date}):Promise<unknown>; insights(w:string,p:{start:Date;end:Date}):Promise<unknown>; dataQuality(w:string,p:{start:Date;end:Date}):Promise<unknown>; daily(w:string,p:{start:Date;end:Date}):Promise<unknown>; weekly(w:string,p:{start:Date;end:Date}):Promise<unknown>;
+}
 
 export function buildApp(
   options: {
@@ -147,6 +150,7 @@ export function buildApp(
     facebook?: FacebookApiService;
     creative?: CreativeApiService;
     operations?: OperationsApiService;
+    analytics?: AnalyticsApiService;
     workspaceId?: string;
   } = {},
 ) {
@@ -685,5 +689,18 @@ export function buildApp(
   app.get("/api/operations/alerts", (_request, reply) =>
     ops(reply, () => options.operations!.alerts(options.workspaceId!)),
   );
+  const analyticsPeriod=z.object({from:z.coerce.date(),to:z.coerce.date()}).refine(v=>v.to>=v.from);
+  const analytics=(request:FastifyRequest,reply:FastifyReply,action:(p:{start:Date;end:Date})=>Promise<unknown>)=>{if(!options.analytics||!options.workspaceId)return reply.code(503).send({error:"analytics_not_configured"});const parsed=analyticsPeriod.safeParse(request.query);return parsed.success?action({start:parsed.data.from,end:parsed.data.to}):reply.code(400).send({error:"invalid_period"})};
+  app.get("/api/analytics/overview",(r,q)=>analytics(r,q,p=>options.analytics!.overview(options.workspaceId!,p)));
+  app.get<{Params:{id:string}}>("/api/analytics/products/:id",(r,q)=>analytics(r,q,p=>options.analytics!.product(options.workspaceId!,r.params.id,p)));
+  app.get<{Params:{id:string}}>("/api/analytics/categories/:id",(r,q)=>analytics(r,q,p=>options.analytics!.category(options.workspaceId!,r.params.id,p)));
+  app.get<{Params:{id:string}}>("/api/analytics/platforms/:id",(r,q)=>analytics(r,q,p=>["pinterest","facebook","business"].includes(r.params.id)?options.analytics!.platform(options.workspaceId!,r.params.id as "pinterest"|"facebook"|"business",p):Promise.reject(new Error("invalid_platform"))));
+  app.get("/api/analytics/winners",(r,q)=>analytics(r,q,p=>options.analytics!.winners(options.workspaceId!,p)));
+  app.get("/api/analytics/underperformers",(r,q)=>analytics(r,q,p=>options.analytics!.underperformers(options.workspaceId!,p)));
+  app.get("/api/analytics/insights",(r,q)=>analytics(r,q,p=>options.analytics!.insights(options.workspaceId!,p)));
+  app.get("/api/analytics/data-quality",(r,q)=>analytics(r,q,p=>options.analytics!.dataQuality(options.workspaceId!,p)));
+  app.get("/api/analytics/daily-summary",(r,q)=>analytics(r,q,p=>options.analytics!.daily(options.workspaceId!,p)));
+  app.get("/api/analytics/weekly-review",(r,q)=>analytics(r,q,p=>options.analytics!.weekly(options.workspaceId!,p)));
+  app.get<{Querystring:{ids?:string;from?:string;to?:string}}>("/api/analytics/creatives/compare",(r,q)=>analytics(r,q,p=>options.analytics!.creativeComparison(options.workspaceId!,r.query.ids?.split(",").filter(Boolean)??[],p)));
   return app;
 }
