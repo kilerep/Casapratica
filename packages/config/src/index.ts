@@ -1,7 +1,7 @@
 import { z } from "zod";
 export { z } from "zod";
 const booleanFlag=z.preprocess(v=>typeof v==="string"?["1","true","yes"].includes(v.toLowerCase()):v,z.boolean());
-export const featureFlagsSchema=z.object({ENABLE_REAL_PINTEREST_PUBLISHING:booleanFlag.default(false),ENABLE_REAL_FACEBOOK_PUBLISHING:booleanFlag.default(false),ENABLE_AUTOPILOT:booleanFlag.default(false),ENABLE_SCHEDULED_PUBLISHING:booleanFlag.default(true),ENABLE_REAL_METRICS_IMPORT:booleanFlag.default(false),ENABLE_TEST_PUBLISHING_PROVIDER:booleanFlag.default(false)});
+export const featureFlagsSchema=z.object({ENABLE_PINTEREST_PILOT:booleanFlag.default(false),ENABLE_REAL_PINTEREST_PUBLISHING:booleanFlag.default(false),ENABLE_REAL_FACEBOOK_PUBLISHING:booleanFlag.default(false),ENABLE_AUTOPILOT:booleanFlag.default(false),ENABLE_SCHEDULED_PUBLISHING:booleanFlag.default(true),ENABLE_REAL_METRICS_IMPORT:booleanFlag.default(false),ENABLE_TEST_PUBLISHING_PROVIDER:booleanFlag.default(false)});
 export type FeatureFlags=z.infer<typeof featureFlagsSchema>;
 export const loadFeatureFlags=(env:Record<string,string|undefined>=process.env)=>featureFlagsSchema.parse(env);
 export const integrationModeSchema=z.enum(["TEST","SANDBOX","PRODUCTION"]).default("TEST");

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { PinterestPilotService } from "./pinterest-pilot.js";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import type { CreativeRequest } from "@casapratica/domain";
 import { chatRequestSchema, type AIChatService } from "@casapratica/agents";
@@ -135,9 +137,41 @@ interface OperationsApiService {
   alerts(workspaceId: string): Promise<unknown>;
 }
 interface AnalyticsApiService {
-  overview(w:string,p:{start:Date;end:Date}):Promise<unknown>; product(w:string,id:string,p:{start:Date;end:Date}):Promise<unknown>; category(w:string,id:string,p:{start:Date;end:Date}):Promise<unknown>; platform(w:string,id:"pinterest"|"facebook"|"business",p:{start:Date;end:Date}):Promise<unknown>; creativeComparison(w:string,ids:readonly string[],p:{start:Date;end:Date}):Promise<unknown>; winners(w:string,p:{start:Date;end:Date}):Promise<unknown>; underperformers(w:string,p:{start:Date;end:Date}):Promise<unknown>; insights(w:string,p:{start:Date;end:Date}):Promise<unknown>; dataQuality(w:string,p:{start:Date;end:Date}):Promise<unknown>; daily(w:string,p:{start:Date;end:Date}):Promise<unknown>; weekly(w:string,p:{start:Date;end:Date}):Promise<unknown>;
+  overview(w: string, p: { start: Date; end: Date }): Promise<unknown>;
+  product(
+    w: string,
+    id: string,
+    p: { start: Date; end: Date },
+  ): Promise<unknown>;
+  category(
+    w: string,
+    id: string,
+    p: { start: Date; end: Date },
+  ): Promise<unknown>;
+  platform(
+    w: string,
+    id: "pinterest" | "facebook" | "business",
+    p: { start: Date; end: Date },
+  ): Promise<unknown>;
+  creativeComparison(
+    w: string,
+    ids: readonly string[],
+    p: { start: Date; end: Date },
+  ): Promise<unknown>;
+  winners(w: string, p: { start: Date; end: Date }): Promise<unknown>;
+  underperformers(w: string, p: { start: Date; end: Date }): Promise<unknown>;
+  insights(w: string, p: { start: Date; end: Date }): Promise<unknown>;
+  dataQuality(w: string, p: { start: Date; end: Date }): Promise<unknown>;
+  daily(w: string, p: { start: Date; end: Date }): Promise<unknown>;
+  weekly(w: string, p: { start: Date; end: Date }): Promise<unknown>;
 }
-type ReadinessResult={status:"ready"|"degraded"|"not_ready";database:string;redis:string;worker:string;integrations:Record<string,string>};
+type ReadinessResult = {
+  status: "ready" | "degraded" | "not_ready";
+  database: string;
+  redis: string;
+  worker: string;
+  integrations: Record<string, string>;
+};
 
 export function buildApp(
   options: {
@@ -152,13 +186,133 @@ export function buildApp(
     creative?: CreativeApiService;
     operations?: OperationsApiService;
     analytics?: AnalyticsApiService;
-    readiness?:()=>Promise<ReadinessResult>;
+    readiness?: () => Promise<ReadinessResult>;
+    pinterestPilot?: PinterestPilotService;
+    webOrigin?: string;
     workspaceId?: string;
   } = {},
 ) {
-  const app = Fastify({ logger: true });
+  const app = Fastify({
+    logger: {
+      serializers: {
+        req: (request) => ({
+          method: request.method,
+          url: request.url.split("?")[0] ?? "/",
+        }),
+        err: (error) => ({ type: error.name, message: "request_failed", stack:"" }),
+      },
+    },
+  });
+  const webOrigin = options.webOrigin ?? "http://localhost:3000";
+  app.addHook("onRequest", async (request, reply) => {
+    if (
+      request.url.startsWith("/api/integrations") ||
+      request.url.startsWith("/api/pinterest/pilot")
+    ) {
+      reply
+        .header("Cache-Control", "no-store")
+        .header("Referrer-Policy", "no-referrer");
+      if (
+        request.method === "POST" &&
+        (request.url.startsWith("/api/integrations/pinterest/") ||
+          request.url.startsWith("/api/pinterest/pilot")) &&
+        request.headers.origin !== webOrigin
+      )
+        return reply.code(403).send({ error: "origin_required" });
+    }
+  });
+  app.get("/api/pinterest/pilot/boards", async (_request, reply) => {
+    if (!options.pinterestPilot || !options.workspaceId)
+      return reply.code(503).send({ error: "pinterest_pilot_disabled" });
+    try {
+      return await options.pinterestPilot.listBoards(options.workspaceId);
+    } catch {
+      return reply.code(422).send({ error: "boards_unavailable" });
+    }
+  });
+  app.post<{ Params: { id: string } }>(
+    "/api/pinterest/pilot/:id/board",
+    async (request, reply) => {
+      if (!options.pinterestPilot || !options.workspaceId)
+        return reply.code(503).send({ error: "pinterest_pilot_disabled" });
+      const input = z
+        .object({ boardId: z.string().regex(/^\d+$/) })
+        .safeParse(request.body);
+      if (!input.success)
+        return reply.code(400).send({ error: "invalid_board" });
+      try {
+        return await options.pinterestPilot.selectBoard(
+          options.workspaceId,
+          request.params.id,
+          input.data.boardId,
+        );
+      } catch {
+        return reply.code(422).send({ error: "board_change_blocked" });
+      }
+    },
+  );
+  app.post<{ Params: { id: string } }>(
+    "/api/pinterest/pilot/:id/dry-run",
+    async (request, reply) => {
+      if (!options.pinterestPilot || !options.workspaceId)
+        return reply.code(503).send({ error: "pinterest_pilot_disabled" });
+      try {
+        return await options.pinterestPilot.dryRun(
+          options.workspaceId,
+          request.params.id,
+        );
+      } catch {
+        return reply.code(422).send({ error: "dry_run_failed" });
+      }
+    },
+  );
+  app.post<{ Params: { id: string } }>(
+    "/api/pinterest/pilot/:id/publish",
+    async (request, reply) => {
+      if (!options.pinterestPilot || !options.workspaceId)
+        return reply.code(503).send({ error: "pinterest_pilot_disabled" });
+      const input = z
+        .object({
+          confirmation: z.literal("PUBLISH_PINTEREST_PIN"),
+          fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+          actorId: z.string().min(1).max(100),
+        })
+        .safeParse(request.body);
+      if (!input.success)
+        return reply.code(400).send({ error: "manual_confirmation_required" });
+      try {
+        return await options.pinterestPilot.publish(
+          options.workspaceId,
+          request.params.id,
+          input.data.actorId,
+          input.data.fingerprint,
+        );
+      } catch {
+        return reply
+          .code(422)
+          .send({ error: "publication_blocked_or_reconciliation_required" });
+      }
+    },
+  );
   app.get("/health", async () => ({ status: "ok" as const }));
-  app.get("/ready",async(_request,reply)=>{if(!options.readiness)return reply.code(503).send({status:"not_ready",database:"not_configured",redis:"not_configured",worker:"unknown",integrations:{mercadolivre:"optional",pinterest:"optional",meta:"optional"}});const result=await options.readiness();return reply.code(result.status==="not_ready"?503:200).send(result)});
+  app.get("/ready", async (_request, reply) => {
+    if (!options.readiness)
+      return reply
+        .code(503)
+        .send({
+          status: "not_ready",
+          database: "not_configured",
+          redis: "not_configured",
+          worker: "unknown",
+          integrations: {
+            mercadolivre: "optional",
+            pinterest: "optional",
+            meta: "optional",
+          },
+        });
+    const result = await options.readiness();
+    return reply.code(result.status === "not_ready" ? 503 : 200).send(result);
+  });
   app.post("/api/ai/chat", async (request, reply) => {
     const input = chatRequestSchema.safeParse(request.body);
     if (!input.success)
@@ -174,11 +328,9 @@ export function buildApp(
         { errorCode: error instanceof Error ? error.message : "unknown_error" },
         "AI chat failed",
       );
-      return reply
-        .code(422)
-        .send({
-          error: error instanceof Error ? error.message : "ai_chat_failed",
-        });
+      return reply.code(422).send({
+        error: error instanceof Error ? error.message : "ai_chat_failed",
+      });
     }
   });
   const provider = (value: string): ProviderName => {
@@ -211,25 +363,58 @@ export function buildApp(
           options.workspaceId,
           provider(request.params.provider),
         );
-      return reply.redirect(
-        await options.integrations.connect(
-          options.workspaceId,
-          provider(request.params.provider),
-        ),
+      const url = await options.integrations.connect(
+        options.workspaceId,
+        provider(request.params.provider),
       );
+      if (request.params.provider === "pinterest") {
+        const state = new URL(url).searchParams.get("state");
+        reply.header(
+          "Set-Cookie",
+          `pinterest_oauth=${createHash("sha256")
+            .update(state ?? "")
+            .digest(
+              "hex",
+            )}; HttpOnly; SameSite=Lax; Path=/api/integrations/pinterest; Max-Age=600${url.includes("redirect_uri=https") ? "; Secure" : ""}`,
+        );
+      }
+      return reply.redirect(url);
     },
   );
   app.get<{
     Params: { provider: string };
-    Querystring: { code?: string; state?: string };
+    Querystring: { code?: string; state?: string; error?: string };
   }>("/api/integrations/:provider/callback", async (request, reply) => {
-    if (!options.integrations || !request.query.code || !request.query.state)
+    if (!options.integrations || !request.query.state)
       return reply.code(400).send({ error: "invalid_callback" });
-    return options.integrations.callback(
-      provider(request.params.provider),
-      request.query.code,
-      request.query.state,
-    );
+    if (request.params.provider === "pinterest") {
+      const cookie = request.headers.cookie
+        ?.split(";")
+        .map((v) => v.trim())
+        .find((v) => v.startsWith("pinterest_oauth="))
+        ?.slice("pinterest_oauth=".length);
+      if (
+        cookie !==
+        createHash("sha256").update(request.query.state).digest("hex")
+      )
+        return reply.code(400).send({ error: "invalid_oauth_browser" });
+      reply.header(
+        "Set-Cookie",
+        "pinterest_oauth=; HttpOnly; SameSite=Lax; Path=/api/integrations/pinterest; Max-Age=0",
+      );
+    }
+    try {
+      const result = await options.integrations.callback(
+        provider(request.params.provider),
+        request.query.error ? "" : (request.query.code ?? ""),
+        request.query.state,
+      );
+      return request.params.provider === "pinterest"
+        ? reply.redirect(`${webOrigin}/integrations?oauth=connected`)
+        : result;
+    } catch {
+      return reply.code(400).send({ error: "oauth_failed_restart_connection" });
+    }
   });
   app.post<{ Params: { provider: string } }>(
     "/api/integrations/:provider/disconnect",

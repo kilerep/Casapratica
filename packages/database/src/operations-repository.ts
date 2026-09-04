@@ -37,11 +37,19 @@ export class PrismaOperationsRepository implements OperationsRepository {
   ): QueueItem {
     const content = row.content as {
         product: { status: string } | null;
-        variants: Array<{ body: string; metadata: Prisma.JsonValue | null }>;
+        variants: Array<{
+          id: string;
+          channel: string;
+          title: string | null;
+          body: string;
+          metadata: Prisma.JsonValue | null;
+        }>;
       },
       creative = row.creativeAsset as {
         id: string;
         status: string;
+        storageKey: string;
+        mimeType: string;
         metadata: Prisma.JsonValue | null;
       } | null,
       account = row.integrationAccount as {
@@ -49,7 +57,9 @@ export class PrismaOperationsRepository implements OperationsRepository {
         status: string;
         capabilities: Array<{ capability: string; status: string }>;
       } | null,
-      variant = content.variants[0],
+      variant =
+        content.variants.find((v) => v.id === row.contentVariantId) ??
+        content.variants.find((v) => v.channel === row.channel),
       metadata = object(variant?.metadata),
       creativeMetadata = object(creative?.metadata);
     return {
@@ -90,7 +100,12 @@ export class PrismaOperationsRepository implements OperationsRepository {
           : null,
       destinationId: row.destinationId as string | null,
       body: variant?.body ?? "",
-      metadata,
+      metadata: {
+        ...metadata,
+        title: variant?.title ?? null,
+        creativeUrl: creative?.storageKey ?? null,
+        creativeMimeType: creative?.mimeType ?? null,
+      },
     };
   }
   async rows(workspaceId: string) {
@@ -303,6 +318,62 @@ export class PrismaOperationsRepository implements OperationsRepository {
           metadata: object(row.providerResponse),
         }
       : null;
+  }
+  async selectPinterestBoard(
+    workspaceId: string,
+    id: string,
+    boardId: string,
+    accountId: string,
+  ) {
+    const result = await this.prisma.publicationQueueItem.updateMany({
+      where: {
+        workspaceId,
+        id,
+        channel: "pinterest",
+        status: { in: ["draft", "awaiting_approval", "approved"] },
+        attempts: 0,
+      },
+      data: {
+        destinationId: boardId,
+        integrationAccountId: accountId,
+        status: "awaiting_approval",
+        approvedAt: null,
+        approvedBy: null,
+      },
+    });
+    if (result.count !== 1) throw new Error("board_change_blocked");
+    await this.appendAudit(workspaceId, "pinterest.board_selected", id, null, {
+      boardId,
+      accountId,
+    });
+  }
+  async reservePinterestPublication(
+    workspaceId: string,
+    item: QueueItem,
+    key: string,
+  ) {
+    try {
+      await this.prisma.publication.create({
+        data: {
+          workspaceId,
+          queueItemId: item.id,
+          productId: item.productId,
+          contentId: item.contentId,
+          creativeAssetId: item.creativeAssetId,
+          integrationAccountId: item.integrationAccountId,
+          channel: "pinterest",
+          status: "publishing",
+          idempotencyKey: key,
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      )
+        throw new Error("reconciliation_required");
+      throw error;
+    }
   }
   async savePublication(
     workspaceId: string,

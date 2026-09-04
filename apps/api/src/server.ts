@@ -1,5 +1,9 @@
+import { PinterestPilotService, pinterestReadiness } from "./pinterest-pilot.js";
 import { z } from "zod";
-import { canUseTestPublishingProvider, loadFeatureFlags } from "@casapratica/config";
+import {
+  canUseTestPublishingProvider,
+  loadFeatureFlags,
+} from "@casapratica/config";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 import {
@@ -37,6 +41,7 @@ import {
   IntegrationService,
   MercadoLivreProductProvider,
   PinterestBoardProvider,
+  PinterestPinProvider,
   SharpImageCompositionProvider,
   createMercadoLivreProvider,
   createMetaProvider,
@@ -60,9 +65,12 @@ import { BullMqPublicationScheduler } from "./publication-scheduler.js";
 
 const env = z
   .object({
+    WEB_ORIGIN: z.url().default("http://localhost:3000"),
     API_HOST: z.string().default("0.0.0.0"),
     API_PORT: z.coerce.number().int().positive().default(3001),
-    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    NODE_ENV: z
+      .enum(["development", "test", "production"])
+      .default("development"),
     INTEGRATION_MODE: z.enum(["TEST", "SANDBOX", "PRODUCTION"]).default("TEST"),
     REDIS_URL: z.string().url().optional(),
     OPENAI_API_KEY: z.string().min(1).optional(),
@@ -87,8 +95,9 @@ const env = z
   })
   .parse(process.env);
 const prisma = createPrismaClient();
-const flags=loadFeatureFlags(process.env);
+const flags = loadFeatureFlags(process.env);
 let integrations: IntegrationService | undefined;
+let pinterestPilot: PinterestPilotService | undefined;
 const tools = new ToolRegistry();
 const content = env.DEFAULT_WORKSPACE_ID
   ? new ContentEngine(new PrismaContentRepository(prisma))
@@ -108,10 +117,13 @@ const creative = env.DEFAULT_WORKSPACE_ID
 const operationsRepository = env.DEFAULT_WORKSPACE_ID
   ? new PrismaOperationsRepository(prisma)
   : undefined;
-const analytics=env.DEFAULT_WORKSPACE_ID?new PerformanceIntelligenceService(new PrismaAnalyticsRepository(prisma)):undefined;
-const scheduler = env.REDIS_URL&&flags.ENABLE_SCHEDULED_PUBLISHING
-  ? new BullMqPublicationScheduler(env.REDIS_URL)
+const analytics = env.DEFAULT_WORKSPACE_ID
+  ? new PerformanceIntelligenceService(new PrismaAnalyticsRepository(prisma))
   : undefined;
+const scheduler =
+  env.REDIS_URL && flags.ENABLE_SCHEDULED_PUBLISHING
+    ? new BullMqPublicationScheduler(env.REDIS_URL)
+    : undefined;
 const dailyOperations = operationsRepository
     ? new DailyOperationsService(operationsRepository, content, creative)
     : undefined,
@@ -119,7 +131,15 @@ const dailyOperations = operationsRepository
     ? new ApprovalService(operationsRepository, scheduler)
     : undefined,
   publishing = operationsRepository
-    ? new PublishingService(operationsRepository,canUseTestPublishingProvider(process.env)?{pinterest:new TestPublishingProvider(),facebook:new TestPublishingProvider()}:{})
+    ? new PublishingService(
+        operationsRepository,
+        canUseTestPublishingProvider(process.env)
+          ? {
+              pinterest: new TestPublishingProvider(),
+              facebook: new TestPublishingProvider(),
+            }
+          : {},
+      )
     : undefined;
 const operations =
   dailyOperations && approval && publishing && operationsRepository
@@ -166,13 +186,20 @@ if (content && env.DEFAULT_WORKSPACE_ID)
 if (env.INTEGRATION_ENCRYPTION_KEY && env.DEFAULT_WORKSPACE_ID) {
   const registry = new IntegrationProviderRegistry(),
     http = new FetchHttpClient();
-  if (env.PINTEREST_CLIENT_ID && env.PINTEREST_CLIENT_SECRET)
+  if (
+    flags.ENABLE_PINTEREST_PILOT &&
+    env.PINTEREST_CLIENT_ID &&
+    env.PINTEREST_CLIENT_SECRET
+  )
     registry.register(
       createPinterestProvider(
         env.PINTEREST_CLIENT_ID,
         env.PINTEREST_CLIENT_SECRET,
         http,
-        { realPublishingEnabled: flags.ENABLE_REAL_PINTEREST_PUBLISHING },
+        {
+          pilotEnabled: flags.ENABLE_PINTEREST_PILOT,
+          realPublishingEnabled: flags.ENABLE_REAL_PINTEREST_PUBLISHING,
+        },
       ),
     );
   if (
@@ -208,13 +235,41 @@ if (env.INTEGRATION_ENCRYPTION_KEY && env.DEFAULT_WORKSPACE_ID) {
       mercadolivre: env.MERCADOLIVRE_REDIRECT_URI,
     },
   );
-  if (env.PINTEREST_CLIENT_ID && env.PINTEREST_CLIENT_SECRET)
+  if (
+    flags.ENABLE_PINTEREST_PILOT &&
+    env.PINTEREST_CLIENT_ID &&
+    env.PINTEREST_CLIENT_SECRET
+  )
     pinterest = new PinterestStrategyEngine(
       new PrismaPinterestStrategyRepository(prisma),
       new PinterestBoardProvider(http, () =>
         integrations!.accessToken(env.DEFAULT_WORKSPACE_ID!, "pinterest"),
       ),
     );
+  if (
+    flags.ENABLE_PINTEREST_PILOT &&
+    registry.has("pinterest") &&
+    operationsRepository
+  ) {
+    const token = () =>
+      integrations!.accessToken(env.DEFAULT_WORKSPACE_ID!, "pinterest");
+    pinterestPilot = new PinterestPilotService(
+      operationsRepository,
+      integrations,
+      new PinterestBoardProvider(http, token),
+      new PinterestPinProvider(
+        http,
+        token,
+        () =>
+          flags.ENABLE_PINTEREST_PILOT &&
+          flags.ENABLE_REAL_PINTEREST_PUBLISHING,
+      ),
+      () => ({
+        pilot: flags.ENABLE_PINTEREST_PILOT,
+        publishing: flags.ENABLE_REAL_PINTEREST_PUBLISHING,
+      }),
+    );
+  }
   if (
     env.META_CLIENT_ID &&
     env.META_CLIENT_SECRET &&
@@ -267,7 +322,8 @@ if (operations && env.DEFAULT_WORKSPACE_ID)
     status: (id) => operations.status(env.DEFAULT_WORKSPACE_ID!, id),
     alerts: () => operations.alerts(env.DEFAULT_WORKSPACE_ID!),
   });
-if(analytics&&env.DEFAULT_WORKSPACE_ID) registerAnalyticsTools(tools,analytics,env.DEFAULT_WORKSPACE_ID);
+if (analytics && env.DEFAULT_WORKSPACE_ID)
+  registerAnalyticsTools(tools, analytics, env.DEFAULT_WORKSPACE_ID);
 let aiChat: AIChatService | undefined;
 if (env.OPENAI_API_KEY && env.DEFAULT_WORKSPACE_ID) {
   const system = createCasaPraticaAgentSystem(await loadAgentPrompts(), tools);
@@ -279,6 +335,8 @@ if (env.OPENAI_API_KEY && env.DEFAULT_WORKSPACE_ID) {
   );
 }
 const app = buildApp({
+  webOrigin: env.WEB_ORIGIN,
+  ...(pinterestPilot ? { pinterestPilot } : {}),
   ...(aiChat ? { aiChat } : {}),
   ...(integrations ? { integrations } : {}),
   ...(content ? { content } : {}),
@@ -287,13 +345,63 @@ const app = buildApp({
   ...(creative ? { creative } : {}),
   ...(operations ? { operations } : {}),
   ...(analytics ? { analytics } : {}),
-  readiness:async()=>{let database="unavailable",redis="not_configured",worker="not_configured";try{await prisma.$queryRaw`SELECT 1`;database="available"}catch{database="unavailable"}if(env.REDIS_URL){const connection=new Redis(env.REDIS_URL,{lazyConnect:true,maxRetriesPerRequest:1,connectTimeout:1000});try{await connection.connect();redis=await connection.ping()==="PONG"?"available":"unavailable";const queue=new Queue("casapratica",{connection});worker=(await queue.getWorkers()).length?"available":"degraded";await queue.close()}catch{redis="unavailable";worker="unavailable"}finally{connection.disconnect()}}const status=database!=="available"||redis==="unavailable"?"not_ready":worker==="degraded"?"degraded":"ready";return {status,database,redis,worker,integrations:{mercadolivre:"optional",pinterest:"optional",meta:"optional"}}},
+  readiness: async () => {
+    let database = "unavailable",
+      redis = "not_configured",
+      worker = "not_configured";
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      database = "available";
+    } catch {
+      database = "unavailable";
+    }
+    if (env.REDIS_URL) {
+      const connection = new Redis(env.REDIS_URL, {
+        lazyConnect: true,
+        maxRetriesPerRequest: 1,
+        connectTimeout: 1000,
+      });
+      try {
+        await connection.connect();
+        redis =
+          (await connection.ping()) === "PONG" ? "available" : "unavailable";
+        const queue = new Queue("casapratica", { connection });
+        worker = (await queue.getWorkers()).length ? "available" : "degraded";
+        await queue.close();
+      } catch {
+        redis = "unavailable";
+        worker = "unavailable";
+      } finally {
+        connection.disconnect();
+      }
+    }
+    const status =
+      database !== "available" || redis === "unavailable"
+        ? "not_ready"
+        : worker === "degraded"
+          ? "degraded"
+          : "ready";
+    return {
+      status,
+      database,
+      redis,
+      worker,
+      integrations: {
+        mercadolivre: "optional",
+        pinterest: await pinterestReadiness(flags.ENABLE_PINTEREST_PILOT,integrations,env.DEFAULT_WORKSPACE_ID),
+        meta: "optional",
+      },
+    };
+  },
   ...(env.DEFAULT_WORKSPACE_ID
     ? { workspaceId: env.DEFAULT_WORKSPACE_ID }
     : {}),
 });
 try {
-  await app.listen({ host: env.API_HOST, port: env.API_PORT });
+  await app.listen({
+    host: flags.ENABLE_PINTEREST_PILOT ? "127.0.0.1" : env.API_HOST,
+    port: env.API_PORT,
+  });
 } catch (error) {
   app.log.error({ err: error }, "API failed to start");
   process.exitCode = 1;

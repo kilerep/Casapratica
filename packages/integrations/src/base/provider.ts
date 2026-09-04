@@ -8,4 +8,4 @@ export class ProviderError extends Error {
 export interface OAuthTokens { accessToken: string; refreshToken: string | null; expiresAt: Date; scopes: readonly string[]; externalAccountId: string | null }
 export interface OAuthContext { redirectUri: string; state: string; codeChallenge: string; codeVerifier: string }
 export interface IntegrationProvider { readonly name: ProviderName; getAuthorizationUrl(c: OAuthContext): URL; handleCallback(code: string, c: OAuthContext): Promise<OAuthTokens>; refreshToken(token: string): Promise<OAuthTokens>; validateConnection(token: string): Promise<boolean>; disconnect(token: string): Promise<void>; getCapabilities(token: string, scopes: readonly string[]): Promise<CapabilityMap> }
-export interface HttpClient { request<T>(i: { url: string; method: "GET" | "POST" | "DELETE"; headers?: Readonly<Record<string, string>>; body?: URLSearchParams; timeoutMs?: number; essential?: boolean }): Promise<T> }
+export interface HttpClient { request<T>(i: { url: string; method: "GET" | "POST" | "DELETE"; headers?: Readonly<Record<string, string>>; body?: URLSearchParams | string; timeoutMs?: number; essential?: boolean }): Promise<T> }

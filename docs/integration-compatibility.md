@@ -14,7 +14,7 @@ OAuth permissions e capabilities internas são conceitos separados. Uma capabili
 
 ## Endpoints Mercado Livre
 
-A busca usa `/sites/{site}/search`, itens unitários usam `/items/{id}` e vendedores unitários usam `/users/{id}`. Não foram encontrados `/items?ids=` ou `/users?ids=`. Como não há multiget, não foi necessária migração para `/items/bulk?ids=` ou `/users/bulk?ids=`.
+A busca usa `/sites/{site}/search`, itens unitários usam `/items/{id}` e vendedores unitários usam `/users/{id}`. Não foram encontrados `/itemsóids=` ou `/usersóids=`. Como não há multiget, não foi necessária migração para `/items/bulk?ids=` ou `/users/bulk?ids=`.
 
 Sinais como reputação, loja oficial, MercadoLíder e destaque são normalizados somente quando presentes na resposta. Campos ausentes permanecem `null` e são listados em `missingFields`.
 
@@ -45,3 +45,6 @@ Defaults seguros:
 - `ENABLE_TEST_PUBLISHING_PROVIDER=false`
 
 Antes da primeira integração real ainda serão necessários cadastro e aprovação dos aplicativos, redirect URIs oficiais, credenciais em secret manager, revisão dos termos vigentes, confirmação do tier/rate limits, testes no sandbox de cada plataforma e um rollout controlado das flags.
+
+
+Piloto Pinterest da Fase 11.7: consulte [configuração, guardas e operação manual](pinterest-pilot.md).
