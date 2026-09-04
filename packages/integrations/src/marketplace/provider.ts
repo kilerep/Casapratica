@@ -7,6 +7,7 @@ export const marketplaceProductSchema = z.object({
   rating: z.number().min(0).max(5).nullable(), reviewCount: nullableCount, salesCount: nullableCount,
   sellerExternalId: z.string().nullable(), sellerName: z.string().nullable(), sellerReputation: z.number().min(0).max(100).nullable(),
   images: z.array(z.url()), availability: z.string().nullable(), commission: z.number().nonnegative().nullable(),
+  freeShipping: z.boolean().nullable(), isBestSeller: z.boolean().nullable(), isMercadoLider: z.boolean().nullable(), isOfficialStore: z.boolean().nullable(),
   missingFields: z.array(z.string()), rawSourceReference: z.string().min(1),
 });
 export type MarketplaceProduct = z.infer<typeof marketplaceProductSchema>;

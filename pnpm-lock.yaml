@@ -41,6 +41,9 @@ importers:
       '@casapratica/security':
         specifier: workspace:*
         version: link:../../packages/security
+      '@casapratica/strategy':
+        specifier: workspace:*
+        version: link:../../packages/strategy
       fastify:
         specifier: ^5.5.0
         version: 5.12.1
@@ -148,12 +151,15 @@ importers:
       '@casapratica/security':
         specifier: workspace:*
         version: link:../security
+      '@casapratica/strategy':
+        specifier: workspace:*
+        version: link:../strategy
       '@prisma/client':
-        specifier: ^6.15.0
+        specifier: 6.19.3
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
     devDependencies:
       prisma:
-        specifier: ^6.15.0
+        specifier: 6.19.3
         version: 6.19.3(typescript@5.9.3)
       typescript:
         specifier: ^5.9.2
@@ -205,6 +211,25 @@ importers:
         version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13)
 
   packages/shared:
+    devDependencies:
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13)
+
+  packages/strategy:
+    dependencies:
+      '@casapratica/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@casapratica/integrations':
+        specifier: workspace:*
+        version: link:../integrations
+      zod:
+        specifier: ^4.1.5
+        version: 4.5.4
     devDependencies:
       typescript:
         specifier: ^5.9.2

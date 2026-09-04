@@ -1,5 +1,5 @@
 {
   "name": "@casapratica/database", "version": "0.1.0", "private": true, "type": "module", "main": "./dist/index.js", "types": "./dist/index.d.ts", "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "scripts": { "build": "tsc -p tsconfig.build.json", "db:generate": "prisma generate", "lint": "tsc --noEmit", "test": "vitest run --passWithNoTests", "typecheck": "tsc --noEmit" },
-  "dependencies": { "@casapratica/agents": "workspace:*", "@casapratica/integrations": "workspace:*", "@casapratica/security": "workspace:*", "@casapratica/strategy": "workspace:*", "@prisma/client": "^6.15.0" }, "devDependencies": { "prisma": "^6.15.0", "typescript": "^5.9.2", "vitest": "^3.2.4" }
+  "scripts": { "prebuild": "prisma generate", "build": "tsc -p tsconfig.build.json", "db:generate": "prisma generate", "prelint": "prisma generate", "lint": "tsc --noEmit", "test": "vitest run --passWithNoTests", "pretypecheck": "prisma generate", "typecheck": "tsc --noEmit" },
+  "dependencies": { "@casapratica/agents": "workspace:*", "@casapratica/integrations": "workspace:*", "@casapratica/security": "workspace:*", "@casapratica/strategy": "workspace:*", "@prisma/client": "6.19.3" }, "devDependencies": { "prisma": "6.19.3", "typescript": "^5.9.2", "vitest": "^3.2.4" }
 }
