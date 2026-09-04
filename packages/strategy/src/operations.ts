@@ -47,6 +47,13 @@ export interface PublicationProvider {
     idempotencyKey: string,
   ): Promise<PublishResult | null>;
 }
+export type TestProviderFailure="timeout"|"401"|"429"|"500";
+export class TestPublishingProvider implements PublicationProvider {
+  private readonly published=new Map<string,PublishResult>();
+  constructor(private readonly failure?:TestProviderFailure){}
+  async publish(_item:QueueItem,key:string):Promise<PublishResult>{const existing=this.published.get(key);if(existing)return existing;if(this.failure==="timeout")throw new Error("provider_timeout");if(this.failure)throw new Error(`provider_${this.failure}`);const result={externalId:`local-${key.slice(0,16)}`,externalUrl:`http://localhost.invalid/publications/${key.slice(0,16)}`,publishedAt:new Date(),metadata:{provider:"test",local:true}};this.published.set(key,result);return result}
+  async reconcile(_item:QueueItem,key:string){return this.published.get(key)??null}
+}
 export interface OperationsProduct {
   id: string;
   channels: readonly QueueItem["channel"][];

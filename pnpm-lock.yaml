@@ -32,6 +32,9 @@ importers:
       '@casapratica/agents':
         specifier: workspace:*
         version: link:../../packages/agents
+      '@casapratica/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@casapratica/database':
         specifier: workspace:*
         version: link:../../packages/database
@@ -97,6 +100,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@casapratica/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@casapratica/database':
         specifier: workspace:*
         version: link:../../packages/database

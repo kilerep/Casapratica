@@ -6,7 +6,7 @@ import {
   createPrismaClient,
   PrismaOperationsRepository,
 } from "@casapratica/database";
-import { PublishingService } from "@casapratica/strategy";
+import { PublishingService,TestPublishingProvider } from "@casapratica/strategy";
 import { processScheduledPublication } from "./publication-job.js";
 
 const logger = pino({
@@ -18,12 +18,12 @@ const connection = new Redis(config.REDIS_URL, { maxRetriesPerRequest: null });
 const prisma = createPrismaClient(),
   publishing = new PublishingService(
     new PrismaOperationsRepository(prisma),
-    {},
+    config.ENABLE_TEST_PUBLISHING_PROVIDER==="true"?{pinterest:new TestPublishingProvider(),facebook:new TestPublishingProvider()}:{},
   );
 const worker = new Worker(
   "casapratica",
   async (job) => {
-    logger.info({ jobId: job.id, jobName: job.name }, "Processing job");
+    logger.info({ operationId:job.id, jobName: job.name,publicationQueueItemId:typeof job.data?.publicationQueueItemId==="string"?job.data.publicationQueueItemId:null,workspaceId:typeof job.data?.workspaceId==="string"?job.data.workspaceId:null }, "Processing job");
     if (job.name !== "publish-scheduled") return;
     await processScheduledPublication(job.data, publishing);
   },

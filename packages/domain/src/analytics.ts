@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const metricAvailabilitySchema = z.enum(["available", "zero", "not_applicable", "unknown", "unavailable"]);
+export const dataProvenanceSchema=z.object({source:z.string().min(1),capturedAt:z.coerce.date(),availability:metricAvailabilitySchema,freshness:z.enum(["fresh","stale","unknown"]),confidence:z.number().min(0).max(1)});
+export type DataProvenance=z.infer<typeof dataProvenanceSchema>;
 export const metricSourceSchema = z.enum(["manual", "pinterest", "meta", "affiliate", "imported"]);
 export const analyticsPlatformSchema = z.enum(["pinterest", "facebook", "business"]);
 export const metricNameSchema = z.enum(["impressions", "reach", "saves", "pinClicks", "outboundClicks", "reactions", "comments", "shares", "clicks", "videoViews", "engagement", "affiliateClicks", "conversions", "sales", "revenue", "commission"]);

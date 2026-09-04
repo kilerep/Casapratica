@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { loadFeatureFlags } from "@casapratica/config";
+import { Queue } from "bullmq";
+import { Redis } from "ioredis";
 import {
   AIChatService,
   createCasaPraticaAgentSystem,
@@ -50,6 +53,7 @@ import {
   ProductResearchService,
   PerformanceIntelligenceService,
   PublishingService,
+  TestPublishingProvider,
 } from "@casapratica/strategy";
 import { buildApp } from "./app.js";
 import { BullMqPublicationScheduler } from "./publication-scheduler.js";
@@ -81,6 +85,7 @@ const env = z
   })
   .parse(process.env);
 const prisma = createPrismaClient();
+const flags=loadFeatureFlags(process.env);
 let integrations: IntegrationService | undefined;
 const tools = new ToolRegistry();
 const content = env.DEFAULT_WORKSPACE_ID
@@ -102,7 +107,7 @@ const operationsRepository = env.DEFAULT_WORKSPACE_ID
   ? new PrismaOperationsRepository(prisma)
   : undefined;
 const analytics=env.DEFAULT_WORKSPACE_ID?new PerformanceIntelligenceService(new PrismaAnalyticsRepository(prisma)):undefined;
-const scheduler = env.REDIS_URL
+const scheduler = env.REDIS_URL&&flags.ENABLE_SCHEDULED_PUBLISHING
   ? new BullMqPublicationScheduler(env.REDIS_URL)
   : undefined;
 const dailyOperations = operationsRepository
@@ -112,7 +117,7 @@ const dailyOperations = operationsRepository
     ? new ApprovalService(operationsRepository, scheduler)
     : undefined,
   publishing = operationsRepository
-    ? new PublishingService(operationsRepository, {})
+    ? new PublishingService(operationsRepository,flags.ENABLE_TEST_PUBLISHING_PROVIDER?{pinterest:new TestPublishingProvider(),facebook:new TestPublishingProvider()}:{})
     : undefined;
 const operations =
   dailyOperations && approval && publishing && operationsRepository
@@ -278,6 +283,7 @@ const app = buildApp({
   ...(creative ? { creative } : {}),
   ...(operations ? { operations } : {}),
   ...(analytics ? { analytics } : {}),
+  readiness:async()=>{let database="unavailable",redis="not_configured",worker="not_configured";try{await prisma.$queryRaw`SELECT 1`;database="available"}catch{database="unavailable"}if(env.REDIS_URL){const connection=new Redis(env.REDIS_URL,{lazyConnect:true,maxRetriesPerRequest:1,connectTimeout:1000});try{await connection.connect();redis=await connection.ping()==="PONG"?"available":"unavailable";const queue=new Queue("casapratica",{connection});worker=(await queue.getWorkers()).length?"available":"degraded";await queue.close()}catch{redis="unavailable";worker="unavailable"}finally{connection.disconnect()}}const status=database!=="available"||redis==="unavailable"?"not_ready":worker==="degraded"?"degraded":"ready";return {status,database,redis,worker,integrations:{mercadolivre:"optional",pinterest:"optional",meta:"optional"}}},
   ...(env.DEFAULT_WORKSPACE_ID
     ? { workspaceId: env.DEFAULT_WORKSPACE_ID }
     : {}),

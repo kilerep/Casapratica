@@ -137,6 +137,7 @@ interface OperationsApiService {
 interface AnalyticsApiService {
   overview(w:string,p:{start:Date;end:Date}):Promise<unknown>; product(w:string,id:string,p:{start:Date;end:Date}):Promise<unknown>; category(w:string,id:string,p:{start:Date;end:Date}):Promise<unknown>; platform(w:string,id:"pinterest"|"facebook"|"business",p:{start:Date;end:Date}):Promise<unknown>; creativeComparison(w:string,ids:readonly string[],p:{start:Date;end:Date}):Promise<unknown>; winners(w:string,p:{start:Date;end:Date}):Promise<unknown>; underperformers(w:string,p:{start:Date;end:Date}):Promise<unknown>; insights(w:string,p:{start:Date;end:Date}):Promise<unknown>; dataQuality(w:string,p:{start:Date;end:Date}):Promise<unknown>; daily(w:string,p:{start:Date;end:Date}):Promise<unknown>; weekly(w:string,p:{start:Date;end:Date}):Promise<unknown>;
 }
+type ReadinessResult={status:"ready"|"degraded"|"not_ready";database:string;redis:string;worker:string;integrations:Record<string,string>};
 
 export function buildApp(
   options: {
@@ -151,11 +152,13 @@ export function buildApp(
     creative?: CreativeApiService;
     operations?: OperationsApiService;
     analytics?: AnalyticsApiService;
+    readiness?:()=>Promise<ReadinessResult>;
     workspaceId?: string;
   } = {},
 ) {
   const app = Fastify({ logger: true });
   app.get("/health", async () => ({ status: "ok" as const }));
+  app.get("/ready",async(_request,reply)=>{if(!options.readiness)return reply.code(503).send({status:"not_ready",database:"not_configured",redis:"not_configured",worker:"unknown",integrations:{mercadolivre:"optional",pinterest:"optional",meta:"optional"}});const result=await options.readiness();return reply.code(result.status==="not_ready"?503:200).send(result)});
   app.post("/api/ai/chat", async (request, reply) => {
     const input = chatRequestSchema.safeParse(request.body);
     if (!input.success)

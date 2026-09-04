@@ -10,5 +10,9 @@ test-results/
 .env.*
 !.env.example
 *.log
+*.tsbuildinfo
+var/creative-assets/
+.vitest-temp/
+*.dump
 .DS_Store
 packages/database/prisma/*.db
