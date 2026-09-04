@@ -1,0 +1,15 @@
+import { z } from "zod";
+import { contentAngleSchema, facebookCommentSchema, linkPlacementSchema } from "./content.js";
+
+export const facebookContentPillarSchema = z.enum(["product", "problem_solution", "tip", "organization", "utility", "informational", "comparison", "engagement", "seasonal", "video", "reel"]);
+export const facebookCommentActionSchema = z.enum(["MANUAL_REQUIRED", "AUTOMATIC_AFTER_POST"]);
+export const facebookCreativeBriefSchema = z.object({ preferredProductImage: z.url().nullable(), imageSelectionReason: z.string().min(5), headline: z.string().min(3), productFacts: z.array(z.string()).max(2), priceDisplayRequested: z.boolean(), requiresPriceRefresh: z.boolean(), brandPlacement: z.string().min(3), visualStyle: z.string().min(3), notes: z.array(z.string()) });
+export const facebookReuseEvaluationSchema = z.object({ reuseAllowed: z.boolean(), reason: z.string().min(10), recommendedAngle: contentAngleSchema.nullable() });
+const plannedFacebookPostSchema = z.object({ contentId: z.string(), productId: z.string().nullable(), contentPillar: facebookContentPillarSchema, contentAngle: contentAngleSchema, copy: z.string().min(20), cta: z.string().nullable(), linkPlacement: linkPlacementSchema, preparedComment: facebookCommentSchema.nullable(), commentAction: facebookCommentActionSchema.nullable(), visualBrief: z.string().min(10), creativeBrief: facebookCreativeBriefSchema, status: z.enum(["draft", "approval_required", "ready_for_publication"]), suggestedTime: z.string().nullable(), timeReason: z.string().nullable(), timeConfidence: z.number().min(0).max(1).nullable() });
+export const dailyFacebookPlanSchema = z.object({ date: z.coerce.date(), suggestedPosts: z.array(plannedFacebookPostSchema).max(20), productPosts: z.number().int().nonnegative(), utilityPosts: z.number().int().nonnegative(), informationalPosts: z.number().int().nonnegative(), notes: z.array(z.string()), approvalsRequired: z.boolean() });
+export const weeklyFacebookStrategySchema = z.object({ period: z.object({ start: z.coerce.date(), end: z.coerce.date() }), goals: z.array(z.string()).min(1), suggestedDailyVolume: z.number().int().min(0).max(20), contentPillarDistribution: z.partialRecord(facebookContentPillarSchema, z.number().min(0)), productContent: z.number().int().nonnegative(), utilityContent: z.number().int().nonnegative(), informationalContent: z.number().int().nonnegative(), seasonalContent: z.number().int().nonnegative(), experiments: z.array(z.string()), risks: z.array(z.string()), reasoning: z.string().min(10), confidence: z.number().min(0).max(1), futureMetrics: z.array(z.enum(["reach", "impressions", "engagement", "clicks", "reactions", "comments", "shares", "videoViews"])) });
+export type FacebookContentPillar = z.infer<typeof facebookContentPillarSchema>;
+export type FacebookCreativeBrief = z.infer<typeof facebookCreativeBriefSchema>;
+export type FacebookReuseEvaluation = z.infer<typeof facebookReuseEvaluationSchema>;
+export type DailyFacebookPlan = z.infer<typeof dailyFacebookPlanSchema>;
+export type WeeklyFacebookStrategy = z.infer<typeof weeklyFacebookStrategySchema>;

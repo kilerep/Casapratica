@@ -1,0 +1,3 @@
+import { describe, expect, it, vi } from "vitest";
+import { FacebookPageProvider } from "./index.js";
+describe("FacebookPageProvider", () => { it("lista apenas páginas reais via Graph API autenticada", async () => { const request = vi.fn().mockResolvedValue({ data: [{ id: "page-1", name: "CasaPrática" }, { id: "", name: "inválida" }] }); const provider = new FacebookPageProvider("v23.0", { request }, async () => "token"); await expect(provider.listPages()).resolves.toEqual([{ id: "page-1", name: "CasaPrática" }]); expect(request).toHaveBeenCalledWith(expect.objectContaining({ url: "https://graph.facebook.com/v23.0/me/accounts?fields=id,name", headers: { Authorization: "Bearer token" } })); }); });
