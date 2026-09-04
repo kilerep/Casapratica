@@ -148,6 +148,9 @@ importers:
       '@casapratica/agents':
         specifier: workspace:*
         version: link:../agents
+      '@casapratica/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@casapratica/integrations':
         specifier: workspace:*
         version: link:../integrations

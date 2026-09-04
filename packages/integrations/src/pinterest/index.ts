@@ -1,1 +1,6 @@
 import{OAuthProvider,type OAuthProviderConfig}from"../base/oauth-provider.js";import type{HttpClient}from"../base/provider.js";export function createPinterestProvider(clientId:string,clientSecret:string,http:HttpClient){const c:OAuthProviderConfig={name:"pinterest",clientId,clientSecret,authorizationEndpoint:"https://www.pinterest.com/oauth/",tokenEndpoint:"https://api.pinterest.com/v5/oauth/token",validationEndpoint:"https://api.pinterest.com/v5/user_account",scopes:["user_accounts:read","boards:read","pins:read","pins:write"],capabilities:{read_account:"user_accounts:read",read_boards:"boards:read",create_pin:"pins:write",read_pin:"pins:read",read_analytics:"pins:read"},pkce:false};return new OAuthProvider(c,http);}
+
+export class PinterestBoardProvider {
+  constructor(private readonly http: HttpClient, private readonly accessToken: () => Promise<string>) {}
+  async listBoards(): Promise<readonly { id: string; name: string }[]> { const token = await this.accessToken(); const response = await this.http.request<{ items?: Array<{ id?: string; name?: string }> }>({ url: "https://api.pinterest.com/v5/boards?page_size=100", method: "GET", headers: { Authorization: `Bearer ${token}` } }); return (response.items ?? []).filter((item): item is { id: string; name: string } => Boolean(item.id && item.name)).map(item => ({ id: item.id, name: item.name })); }
+}
