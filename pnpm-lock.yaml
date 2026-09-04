@@ -35,6 +35,9 @@ importers:
       '@casapratica/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@casapratica/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@casapratica/integrations':
         specifier: workspace:*
         version: link:../../packages/integrations

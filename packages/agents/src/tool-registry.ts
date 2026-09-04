@@ -62,3 +62,23 @@ export function registerProductResearchTools(registry: ToolRegistry, service: Pr
   registry.register({ name: "recommend_product", description: "Registra que o proprietário recomendou o produto para seguir ao fluxo de conteúdo. Não aprova publicação.", parameters: z.object({ externalId: z.string().min(1), reason: z.string().min(3) }), externalAction: false, execute: ({ externalId, reason }) => service.approve(workspaceId, externalId, reason) });
   registry.register({ name: "reject_product", description: "Rejeita internamente um produto candidato com motivo explícito.", parameters: z.object({ externalId: z.string().min(1), reason: z.string().min(3) }), externalAction: false, execute: ({ externalId, reason }) => service.reject(workspaceId, externalId, reason) });
 }
+
+type ContentToolAngle = "utility" | "problem_solution" | "space_saving" | "organization" | "price_opportunity" | "social_proof" | "comparison" | "seasonal" | "practicality" | "small_home";
+export interface ContentToolService {
+  generateProduct(input: { workspaceId: string; productId: string; platforms: readonly ("pinterest" | "facebook")[]; variants: number; angles?: readonly ContentToolAngle[] }): Promise<unknown>;
+  generateUtility(input: { workspaceId: string; platform: "pinterest" | "facebook"; topic: string; angle?: ContentToolAngle; seasonalContext?: string | null }): Promise<unknown>;
+  listProductContent(workspaceId: string, productId: string): Promise<unknown>;
+  getContentHistory(workspaceId: string, productId?: string): Promise<unknown>;
+  createVariant(workspaceId: string, contentId: string, variant: { platform: "pinterest" | "facebook"; title: string | null; body: string; metadata: Readonly<Record<string, unknown>> }): Promise<unknown>;
+}
+const contentAngle = z.enum(["utility", "problem_solution", "space_saving", "organization", "price_opportunity", "social_proof", "comparison", "seasonal", "practicality", "small_home"]);
+export function registerContentTools(registry: ToolRegistry, service: ContentToolService, workspaceId: string): void {
+  const generate = (platform: "pinterest" | "facebook") => ({ productId, variants, angles }: { productId: string; variants: number; angles: ContentToolAngle[] }) => service.generateProduct({ workspaceId, productId, platforms: [platform], variants, angles });
+  const productParameters = z.object({ productId: z.string().min(1), variants: z.number().int().min(1).max(3).default(1), angles: z.array(contentAngle).default([]) });
+  registry.register({ name: "generate_pinterest_content", description: "Gera Pins estruturados e distintos a partir de fatos confirmados.", parameters: productParameters, externalAction: false, execute: generate("pinterest") });
+  registry.register({ name: "generate_facebook_content", description: "Gera conteúdo estruturado para Facebook; links de produto ficam em comentário por padrão.", parameters: productParameters, externalAction: false, execute: generate("facebook") });
+  registry.register({ name: "generate_utility_content", description: "Gera conteúdo útil sem exigir produto ou link afiliado.", parameters: z.object({ platform: z.enum(["pinterest", "facebook"]), topic: z.string().min(3), angle: contentAngle.default("utility"), seasonalContext: z.string().nullable().default(null) }), externalAction: false, execute: input => service.generateUtility({ workspaceId, ...input }) });
+  registry.register({ name: "list_product_content", description: "Lista histórico de conteúdo de um produto.", parameters: z.object({ productId: z.string().min(1) }), externalAction: false, execute: ({ productId }) => service.listProductContent(workspaceId, productId) });
+  registry.register({ name: "create_content_variant", description: "Cria uma variante draft validada; nunca publica.", parameters: z.object({ contentId: z.string().min(1), platform: z.enum(["pinterest", "facebook"]), title: z.string().nullable(), body: z.string().min(20), metadata: z.record(z.string(), z.unknown()) }), externalAction: false, execute: ({ contentId, ...variant }) => service.createVariant(workspaceId, contentId, variant) });
+  registry.register({ name: "get_content_history", description: "Consulta histórico recente para evitar repetição.", parameters: z.object({ productId: z.string().optional() }), externalAction: false, execute: ({ productId }) => service.getContentHistory(workspaceId, productId) });
+}
