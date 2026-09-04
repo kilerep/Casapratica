@@ -479,12 +479,6 @@ export class PublishingService {
   ): Promise<PublishResult> {
     const item = await this.repository.getQueueItem(workspaceId, id);
     if (!item) throw new Error("publication_item_not_found");
-    validate(item);
-    const accountId = item.integrationAccountId!;
-    if ((await this.repository.circuitState(workspaceId, accountId)) === "OPEN")
-      throw new Error("circuit_open");
-    const provider = this.providers[item.channel];
-    if (!provider) throw new Error("blocked_by_integration");
     const key = createHash("sha256")
       .update(`${workspaceId}:${id}:${item.contentId}:${item.creativeAssetId}`)
       .digest("hex");
@@ -493,6 +487,12 @@ export class PublishingService {
       key,
     );
     if (existing) return existing;
+    validate(item);
+    const accountId = item.integrationAccountId!;
+    if ((await this.repository.circuitState(workspaceId, accountId)) === "OPEN")
+      throw new Error("circuit_open");
+    const provider = this.providers[item.channel];
+    if (!provider) throw new Error("blocked_by_integration");
     if (item.status === "publishing") {
       const reconciled = await provider.reconcile(item, key);
       if (reconciled) return reconciled;

@@ -13,7 +13,7 @@
     "typecheck": "turbo run typecheck",
     "format:check": "prettier --check .",
     "smoke": "pnpm --filter @casapratica/api smoke",
-    "test:e2e:local": "vitest run e2e/local-production.e2e.test.ts"
+    "test:e2e:local": "vitest run apps/api/src/local-production.e2e.test.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
