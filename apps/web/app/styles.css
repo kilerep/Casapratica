@@ -10,4 +10,5 @@ p { max-width: 590px; color: #52635c; font-size: 1.2rem; line-height: 1.6; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap: 18px; margin-top: 36px; }
 .card { padding: 24px; border: 1px solid #ccd4ca; border-radius: 18px; background: #fffaf0; }
 .card h2 { margin-top: 0; }.card strong { color: #8a5b46; }.buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.operations { padding-top: 64px; }.operations h1 { font-size: clamp(2.5rem,6vw,4.5rem); }.operations pre { overflow: auto; padding: 16px; border-radius: 12px; background: #fffaf0; }.operations small { display: block; color: #52635c; }
 .buttons a,.buttons button { padding: 8px 12px; border: 1px solid #52635c; border-radius: 8px; background: transparent; color: #20352d; text-decoration: none; cursor: pointer; }

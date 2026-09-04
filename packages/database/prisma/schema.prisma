@@ -19,6 +19,7 @@ enum PublicationStatus {
   draft
   awaiting_approval
   approved
+  rejected
   scheduled
   publishing
   published
@@ -281,6 +282,7 @@ model CreativeAsset {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   content Content? @relation(fields: [contentId], references: [id], onDelete: SetNull)
   queueItems PublicationQueueItem[]
+  publications Publication[]
 }
 
 model WeeklyPlan {
@@ -317,6 +319,8 @@ model PublicationQueueItem {
   contentId String @db.Uuid
   contentVariantId String? @db.Uuid
   creativeAssetId String? @db.Uuid
+  integrationAccountId String? @db.Uuid
+  destinationId String?
   channel String
   status PublicationStatus @default(draft)
   scheduledFor DateTime?
@@ -331,6 +335,7 @@ model PublicationQueueItem {
   content Content @relation(fields: [contentId], references: [id], onDelete: Restrict)
   contentVariant ContentVariant? @relation(fields: [contentVariantId], references: [id], onDelete: SetNull)
   creativeAsset CreativeAsset? @relation(fields: [creativeAssetId], references: [id], onDelete: SetNull)
+  integrationAccount IntegrationAccount? @relation(fields: [integrationAccountId], references: [id], onDelete: SetNull)
   publication Publication?
   @@index([workspaceId, status, scheduledFor])
 }
@@ -342,10 +347,16 @@ model Publication {
   productId String? @db.Uuid
   contentId String @db.Uuid
   contentVariantId String? @db.Uuid
+  creativeAssetId String? @db.Uuid
+  integrationAccountId String? @db.Uuid
   channel String
   status PublicationStatus
   externalId String?
   externalUrl String?
+  idempotencyKey String @unique
+  providerResponse Json?
+  errorCode String?
+  errorMessage String?
   publishedAt DateTime?
   failureReason String?
   createdAt DateTime @default(now())
@@ -355,6 +366,8 @@ model Publication {
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
   content Content @relation(fields: [contentId], references: [id], onDelete: Restrict)
   contentVariant ContentVariant? @relation(fields: [contentVariantId], references: [id], onDelete: SetNull)
+  creativeAsset CreativeAsset? @relation(fields: [creativeAssetId], references: [id], onDelete: SetNull)
+  integrationAccount IntegrationAccount? @relation(fields: [integrationAccountId], references: [id], onDelete: SetNull)
   metricSnapshots MetricSnapshot[]
   conversions Conversion[]
 }
@@ -460,6 +473,8 @@ model IntegrationAccount {
   updatedAt DateTime @updatedAt
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   capabilities IntegrationCapability[]
+  queueItems PublicationQueueItem[]
+  publications Publication[]
   @@unique([workspaceId, provider, externalAccountId])
 }
 
