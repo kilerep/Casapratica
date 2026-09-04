@@ -6,6 +6,7 @@ export * from "./base/provider.js";
 export * from "./base/registry.js";
 export * from "./base/service.js";
 export * from "./meta/index.js";
+export * from "./image/index.js";
 export * from "./mercadolivre/index.js";
 export * from "./mercadolivre/product-provider.js";
 export * from "./marketplace/provider.js";

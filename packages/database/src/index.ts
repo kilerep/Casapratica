@@ -5,4 +5,5 @@ export * from "./research-repository.js";
 export * from "./content-repository.js";
 export * from "./pinterest-strategy-repository.js";
 export * from "./facebook-strategy-repository.js";
+export * from "./creative-studio-repository.js";
 export type DatabaseRepository = { readonly kind: "postgresql" };

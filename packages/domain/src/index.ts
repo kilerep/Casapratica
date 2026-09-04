@@ -7,5 +7,6 @@ export * from "./score.js";
 export * from "./content.js";
 export * from "./pinterest.js";
 export * from "./facebook.js";
+export * from "./creative.js";
 
 export type ExternalFact<T> = { readonly value: T; readonly source: string; readonly observedAt: Date } | undefined;
