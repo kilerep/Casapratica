@@ -107,7 +107,7 @@ export function registerFacebookStrategyTools(registry: ToolRegistry, service: F
   registry.register({ name: "evaluate_facebook_reuse", description: "Avalia histórico, duplicidade e nova razão editorial antes de reutilizar produto.", parameters: z.object({ productId: z.string().min(1), proposedAngle: contentAngle.optional() }), externalAction: false, execute: ({ productId, proposedAngle }) => service.evaluateStoredReuse(workspaceId, productId, proposedAngle) });
   registry.register({ name: "get_facebook_strategy", description: "Obtém a estratégia Facebook ativa e validada.", parameters: z.object({}), externalAction: false, execute: () => service.getStrategy(workspaceId) });
   registry.register({ name: "get_facebook_content_history", description: "Consulta histórico Facebook para evitar repetição.", parameters: z.object({}), externalAction: false, execute: () => service.getContentHistory(workspaceId) });
-  registry.register({ name: "list_facebook_pages", description: "Lista páginas reais somente com OAuth e read_page disponíveis.", parameters: z.object({}), externalAction: false, execute: () => service.listPages(workspaceId) });
+  registry.register({ name: "list_facebook_pages", description: "Lista páginas reais somente com OAuth e read_pages disponíveis.", parameters: z.object({}), externalAction: false, execute: () => service.listPages(workspaceId) });
 }
 
 type CreativeInput = { contentId: string; platform: "pinterest" | "facebook"; format: "PINTEREST_2_3" | "FACEBOOK_4_5" | "FACEBOOK_1_1"; template: "MINIMAL_OVERLAY" | "BOTTOM_INFO_PANEL" | "TOP_HEADLINE" | "SIDE_INFO" | "PHOTO_FIRST"; variantCount: number };

@@ -1,8 +1,8 @@
 import { OAuthProvider, type OAuthProviderConfig } from "../base/oauth-provider.js";
 import type { HttpClient } from "../base/provider.js";
-export function createMetaProvider(clientId: string, clientSecret: string, graphApiVersion: string, http: HttpClient) {
+export function createMetaProvider(clientId: string, clientSecret: string, graphApiVersion: string, http: HttpClient, options: { realPublishingEnabled?: boolean } = {}) {
   if (!/^v\d+\.\d+$/.test(graphApiVersion)) throw new Error("invalid_meta_graph_api_version");
-  const config: OAuthProviderConfig = { name: "facebook", clientId, clientSecret, authorizationEndpoint: `https://www.facebook.com/${graphApiVersion}/dialog/oauth`, tokenEndpoint: `https://graph.facebook.com/${graphApiVersion}/oauth/access_token`, validationEndpoint: `https://graph.facebook.com/${graphApiVersion}/me`, revocationEndpoint: `https://graph.facebook.com/${graphApiVersion}/me/permissions`, scopes: ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "read_insights"], capabilities: { read_page: "pages_show_list", create_post: "pages_manage_posts", read_posts: "pages_read_engagement", read_insights: "read_insights" }, pkce: true };
+  const config: OAuthProviderConfig = { name: "facebook", clientId, clientSecret, authorizationEndpoint: `https://www.facebook.com/${graphApiVersion}/dialog/oauth`, tokenEndpoint: `https://graph.facebook.com/${graphApiVersion}/oauth/access_token`, validationEndpoint: `https://graph.facebook.com/${graphApiVersion}/me`, revocationEndpoint: `https://graph.facebook.com/${graphApiVersion}/me/permissions`, scopes: ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "read_insights"], capabilities: { read_pages: { scope: "pages_show_list" }, read_page_content: { scope: "pages_read_engagement" }, create_post: { scope: "pages_manage_posts", enabled: options.realPublishingEnabled === true }, read_insights: { scope: "read_insights" } }, pkce: true };
   return new OAuthProvider(config, http);
 }
 

@@ -1,6 +1,7 @@
 import { Worker } from "bullmq";
 import { Redis } from "ioredis";
 import pino from "pino";
+import { canUseTestPublishingProvider } from "@casapratica/config";
 import { workerConfigSchema } from "./config.js";
 import {
   createPrismaClient,
@@ -18,7 +19,7 @@ const connection = new Redis(config.REDIS_URL, { maxRetriesPerRequest: null });
 const prisma = createPrismaClient(),
   publishing = new PublishingService(
     new PrismaOperationsRepository(prisma),
-    config.ENABLE_TEST_PUBLISHING_PROVIDER==="true"?{pinterest:new TestPublishingProvider(),facebook:new TestPublishingProvider()}:{},
+    canUseTestPublishingProvider(process.env)?{pinterest:new TestPublishingProvider(),facebook:new TestPublishingProvider()}:{},
   );
 const worker = new Worker(
   "casapratica",

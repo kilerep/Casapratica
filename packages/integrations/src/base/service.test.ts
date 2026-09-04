@@ -30,4 +30,12 @@ describe("IntegrationService", () => {
     expect(JSON.stringify(await service.list("workspace"))).not.toContain("access-token");
     await expect(service.callback("pinterest", "code", state)).rejects.toThrow("invalid_oauth_state");
   });
+  it("persiste access e refresh rotacionados juntos", async () => {
+    const cipher = new TokenCipher(Buffer.alloc(32, 2)); let saved: StoredConnection = { id:"account",workspaceId:"workspace",provider:"mercadolivre",accessToken:cipher.encrypt("old-access"),refreshToken:cipher.encrypt("old-refresh"),expiresAt:new Date(Date.now()+1000),scopes:["read"],status:"connected" };
+    const save=vi.fn(async(value:Omit<StoredConnection,"id">|StoredConnection)=>saved={...value,id:"account"}),saveCapabilities=vi.fn();
+    const accounts:IntegrationRepository={list:async()=>[saved],find:async()=>saved,save,saveCapabilities,disconnect:vi.fn()};
+    const provider:IntegrationProvider={name:"mercadolivre",getAuthorizationUrl:()=>new URL("https://example.invalid"),handleCallback:vi.fn(),refreshToken:vi.fn(async()=>({accessToken:"new-access",refreshToken:"new-refresh",expiresAt:new Date(Date.now()+60_000),scopes:["read"],externalAccountId:null})),validateConnection:async()=>true,disconnect:vi.fn(),getCapabilities:async()=>({read_product:{available:true,reason:"available",lastCheckedAt:new Date()}})};
+    const registry=new IntegrationProviderRegistry();registry.register(provider);const service=new IntegrationService(registry,accounts,{save:vi.fn(),consume:vi.fn()},cipher,{pinterest:"https://app.invalid/p",facebook:"https://app.invalid/f",mercadolivre:"https://app.invalid/m"});
+    await service.refresh("workspace","mercadolivre");expect(save).toHaveBeenCalledOnce();expect(cipher.decrypt(saved.accessToken)).toBe("new-access");expect(cipher.decrypt(saved.refreshToken!)).toBe("new-refresh");expect(saveCapabilities).toHaveBeenCalledOnce();expect(JSON.stringify(saved)).not.toContain("new-access");
+  });
 });

@@ -1,2 +1,2 @@
 export type Capability={available:boolean;reason:string;lastCheckedAt:Date};export type CapabilityMap=Readonly<Record<string,Capability>>;
-export const CAPABILITIES={pinterest:["read_account","read_boards","create_pin","read_pin","read_analytics"],facebook:["read_page","create_post","read_posts","read_insights"],mercadolivre:["search_product","read_product","seller_info","affiliate_link_generation"]}as const;
+export const CAPABILITIES={pinterest:["read_account","read_boards","write_boards","read_pins","create_pin","read_analytics"],facebook:["read_pages","read_page_content","create_post","read_insights"],mercadolivre:["search_product","read_product","seller_info","affiliate_link_generation"]}as const;

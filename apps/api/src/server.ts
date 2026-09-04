@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { loadFeatureFlags } from "@casapratica/config";
+import { canUseTestPublishingProvider, loadFeatureFlags } from "@casapratica/config";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 import {
@@ -62,6 +62,8 @@ const env = z
   .object({
     API_HOST: z.string().default("0.0.0.0"),
     API_PORT: z.coerce.number().int().positive().default(3001),
+    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    INTEGRATION_MODE: z.enum(["TEST", "SANDBOX", "PRODUCTION"]).default("TEST"),
     REDIS_URL: z.string().url().optional(),
     OPENAI_API_KEY: z.string().min(1).optional(),
     DEFAULT_WORKSPACE_ID: z.uuid().optional(),
@@ -117,7 +119,7 @@ const dailyOperations = operationsRepository
     ? new ApprovalService(operationsRepository, scheduler)
     : undefined,
   publishing = operationsRepository
-    ? new PublishingService(operationsRepository,flags.ENABLE_TEST_PUBLISHING_PROVIDER?{pinterest:new TestPublishingProvider(),facebook:new TestPublishingProvider()}:{})
+    ? new PublishingService(operationsRepository,canUseTestPublishingProvider(process.env)?{pinterest:new TestPublishingProvider(),facebook:new TestPublishingProvider()}:{})
     : undefined;
 const operations =
   dailyOperations && approval && publishing && operationsRepository
@@ -170,6 +172,7 @@ if (env.INTEGRATION_ENCRYPTION_KEY && env.DEFAULT_WORKSPACE_ID) {
         env.PINTEREST_CLIENT_ID,
         env.PINTEREST_CLIENT_SECRET,
         http,
+        { realPublishingEnabled: flags.ENABLE_REAL_PINTEREST_PUBLISHING },
       ),
     );
   if (
@@ -183,6 +186,7 @@ if (env.INTEGRATION_ENCRYPTION_KEY && env.DEFAULT_WORKSPACE_ID) {
         env.META_CLIENT_SECRET,
         env.META_GRAPH_API_VERSION,
         http,
+        { realPublishingEnabled: flags.ENABLE_REAL_FACEBOOK_PUBLISHING },
       ),
     );
   if (env.MERCADOLIVRE_CLIENT_ID && env.MERCADOLIVRE_CLIENT_SECRET)

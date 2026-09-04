@@ -3,6 +3,7 @@ export * from "./base/http.js";
 export * from "./base/oauth.js";
 export * from "./base/oauth-provider.js";
 export * from "./base/provider.js";
+export * from "./base/rate-limit.js";
 export * from "./base/registry.js";
 export * from "./base/service.js";
 export * from "./meta/index.js";
