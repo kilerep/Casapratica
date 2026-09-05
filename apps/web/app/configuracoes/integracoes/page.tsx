@@ -8,12 +8,14 @@ type Status =
   | "connected"
   | "error"
   | "token_expired"
+  | "integration_disabled"
   | "pilot_disabled";
 type Connection = {
   provider: Provider;
   status: Status;
   expiresAt: string | null;
   externalAccountId?: string | null;
+  displayName?:string|null;
   scopes?: string[];
   capabilities?: Record<string, { available: boolean; reason: string }>;
 };
@@ -55,6 +57,7 @@ const labels: Record<Status, string> = {
   connected: "Conectado",
   error: "Erro",
   token_expired: "Token expirado",
+  integration_disabled:"Integração desligada",
   pilot_disabled: "Piloto desligado",
 };
 export default function IntegrationsPage() {
@@ -145,7 +148,7 @@ export default function IntegrationsPage() {
               <p>{item.description}</p>
               <strong>{labels[status]}</strong>
               {connections[provider]?.externalAccountId && (
-                <p>Conta: {connections[provider]?.externalAccountId}</p>
+                <><p>Nickname: {connections[provider]?.displayName ?? "—"}</p><p>User ID: {connections[provider]?.externalAccountId}</p></>
               )}
               <p>Expiração: {connections[provider]?.expiresAt ?? "—"}</p>
               <p>Scopes: {connections[provider]?.scopes?.join(", ") ?? "—"}</p>
@@ -163,7 +166,7 @@ export default function IntegrationsPage() {
                   </button>
                 ) : (
                   <>
-                    <button type="button" onClick={() => connect(provider)}>
+                    <button type="button" disabled={status==="integration_disabled"} onClick={() => connect(provider)}>
                       {status === "connected" || status === "token_expired"
                         ? "Reconectar"
                         : "Conectar"}

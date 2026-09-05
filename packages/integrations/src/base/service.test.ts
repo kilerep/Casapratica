@@ -136,7 +136,8 @@ describe("IntegrationService", () => {
         mercadolivre: "https://app.invalid/m",
       },
     );
-    await service.refresh("workspace", "mercadolivre");
+    await Promise.all([service.refresh("workspace", "mercadolivre"),service.refresh("workspace", "mercadolivre")]);
+    expect(provider.refreshToken).toHaveBeenCalledOnce();
     expect(save).toHaveBeenCalledOnce();
     expect(cipher.decrypt(saved.accessToken!)).toBe("new-access");
     expect(cipher.decrypt(saved.refreshToken!)).toBe("new-refresh");

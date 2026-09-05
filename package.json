@@ -7,6 +7,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "node scripts/dev.mjs",
+    "dev:stop": "node scripts/dev-stop.mjs",
+    "doctor": "node scripts/doctor.mjs",
     "dev:services": "turbo run dev",
     "dev:check": "node scripts/dev.mjs --check-only",
     "lint": "turbo run lint",

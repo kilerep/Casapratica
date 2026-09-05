@@ -17,6 +17,8 @@ export interface StoredConnection {
   workspaceId: string;
   provider: ProviderName;
   externalAccountId?: string | null;
+  displayName?: string | null;
+  connectedAt?: Date | null;
   accessToken: EncryptedValue | null;
   refreshToken: EncryptedValue | null;
   expiresAt: Date | null;
@@ -62,6 +64,8 @@ export interface OAuthStateRepository {
 export interface PublicConnection {
   id?: string;
   externalAccountId?: string | null;
+  displayName?: string | null;
+  connectedAt?: Date | null;
   provider: ProviderName;
   status: ConnectionStatus;
   expiresAt: Date | null;
@@ -71,6 +75,7 @@ export interface PublicConnection {
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 export class IntegrationService {
+  private readonly refreshes=new Map<string,Promise<PublicConnection>>();
   constructor(
     private readonly providers: IntegrationProviderRegistry,
     private readonly accounts: IntegrationRepository,
@@ -94,7 +99,7 @@ export class IntegrationService {
     const account = await this.accounts.find(workspaceId, provider);
     if (!account) return { provider, status: "disconnected", expiresAt: null };
     const result = toPublic(account);
-    if (result.status === "connected" && provider === "pinterest") {
+    if (result.status === "connected" && (provider === "pinterest" || provider === "mercadolivre")) {
       const capabilities = await this.providers
         .get(provider)
         .getCapabilities(
@@ -164,6 +169,7 @@ export class IntegrationService {
         workspaceId: transaction.workspaceId,
         provider,
         externalAccountId: tokens.externalAccountId,
+        displayName:tokens.displayName??null,
         accessToken: this.cipher.encrypt(tokens.accessToken),
         refreshToken: tokens.refreshToken
           ? this.cipher.encrypt(tokens.refreshToken)
@@ -219,6 +225,9 @@ export class IntegrationService {
     return { valid, status: valid ? account.status : ("error" as const) };
   }
   async refresh(workspaceId: string, provider: ProviderName) {
+    const key=`${workspaceId}:${provider}`,running=this.refreshes.get(key);if(running)return running;const operation=this.refreshOnce(workspaceId,provider).finally(()=>this.refreshes.delete(key));this.refreshes.set(key,operation);return operation;
+  }
+  private async refreshOnce(workspaceId: string, provider: ProviderName):Promise<PublicConnection> {
     const account = await this.required(workspaceId, provider);
     if (!account.refreshToken) throw new Error("AUTH_EXPIRED");
     const tokens = await this.providers
@@ -238,6 +247,7 @@ export class IntegrationService {
       refreshToken,
       expiresAt: tokens.expiresAt,
       scopes: tokens.scopes,
+      displayName:tokens.displayName??account.displayName??null,
       status: "connected",
     });
     const capabilities = await this.providers
@@ -281,6 +291,8 @@ export class IntegrationService {
 const toPublic = (account: StoredConnection): PublicConnection => ({
   id: account.id,
   externalAccountId: account.externalAccountId ?? null,
+  displayName:account.displayName??null,
+  connectedAt:account.connectedAt??null,
   provider: account.provider,
   status:
     account.status === "connected" &&

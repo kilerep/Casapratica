@@ -55,6 +55,7 @@ export class PrismaIntegrationRepository implements IntegrationRepository {
           ? ("connected" as const)
           : ("disconnected" as const),
       externalAccountId: connection.externalAccountId ?? null,
+      displayName:connection.displayName??null,
       accessTokenCiphertext: connection.accessToken
         ? bytes(connection.accessToken.ciphertext)
         : null,
@@ -179,6 +180,8 @@ export class PrismaIntegrationRepository implements IntegrationRepository {
     tokenExpiresAt: Date | null;
     scopes: string[];
     status: string;
+    displayName?:string|null;
+    createdAt?:Date;
   }): StoredConnection {
     const accessToken = encrypted(
       row.accessTokenCiphertext,
@@ -190,6 +193,8 @@ export class PrismaIntegrationRepository implements IntegrationRepository {
       workspaceId: row.workspaceId,
       provider: row.provider as ProviderName,
       externalAccountId: row.externalAccountId,
+      displayName:row.displayName??null,
+      connectedAt:row.createdAt??null,
       accessToken,
       refreshToken: encrypted(
         row.refreshTokenCiphertext,

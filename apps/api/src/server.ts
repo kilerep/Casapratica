@@ -120,6 +120,7 @@ const env = z
   .parse(process.env);
 const prisma = createPrismaClient();
 const flags = loadFeatureFlags(process.env);
+const mercadoLivreEnabled=(flags as typeof flags&{ENABLE_MERCADOLIVRE_INTEGRATION?:boolean}).ENABLE_MERCADOLIVRE_INTEGRATION??false;
 const operationalMode=resolveOperationalMode(process.env);
 const operationalWorkspace=await resolveOperationalWorkspace(new PrismaWorkspaceRepository(prisma),{configuredId:env.DEFAULT_WORKSPACE_ID,mode:operationalMode});
 env.DEFAULT_WORKSPACE_ID=operationalWorkspace.id;
@@ -255,7 +256,7 @@ if (env.INTEGRATION_ENCRYPTION_KEY && env.DEFAULT_WORKSPACE_ID) {
         { pilotEnabled: flags.ENABLE_META_PILOT, realPublishingEnabled: flags.ENABLE_REAL_FACEBOOK_PUBLISHING, ...(env.META_LOGIN_CONFIGURATION_ID ? { configurationId: env.META_LOGIN_CONFIGURATION_ID } : {}) },
       ),
     );
-  if (env.MERCADOLIVRE_CLIENT_ID && env.MERCADOLIVRE_CLIENT_SECRET)
+  if (mercadoLivreEnabled && env.MERCADOLIVRE_CLIENT_ID && env.MERCADOLIVRE_CLIENT_SECRET)
     registry.register(
       createMercadoLivreProvider(
         env.MERCADOLIVRE_CLIENT_ID,
@@ -322,7 +323,7 @@ if (env.INTEGRATION_ENCRYPTION_KEY && env.DEFAULT_WORKSPACE_ID) {
       ),
     );
   if(flags.ENABLE_META_PILOT&&registry.has("facebook")&&operationsRepository){const pageRepository=new PrismaMetaPageRepository(prisma,new TokenCipher(encryptionKeySchema.parse(env.INTEGRATION_ENCRYPTION_KEY)));const pageProvider=new FacebookPageProvider(env.META_GRAPH_API_VERSION!,http,()=>integrations!.accessToken(env.DEFAULT_WORKSPACE_ID!,"facebook"));facebookPilot=new FacebookPilotService(Object.assign(operationsRepository,{selected:(w:string)=>pageRepository.selected(w),select:(w:string,a:string,p:Parameters<typeof pageRepository.select>[2])=>pageRepository.select(w,a,p),audit:(w:string,a:string,r:string,m?:Record<string,unknown>)=>pageRepository.audit(w,a,r,m)}),integrations,pageProvider,new FacebookPublishingProvider(env.META_GRAPH_API_VERSION!,http,()=>pageRepository.pageToken(env.DEFAULT_WORKSPACE_ID!),()=>flags.ENABLE_META_PILOT&&flags.ENABLE_REAL_FACEBOOK_PUBLISHING),()=>({pilot:flags.ENABLE_META_PILOT,publishing:flags.ENABLE_REAL_FACEBOOK_PUBLISHING}))}
-  if (env.MERCADOLIVRE_CLIENT_ID && env.MERCADOLIVRE_CLIENT_SECRET) {
+  if (mercadoLivreEnabled && env.MERCADOLIVRE_CLIENT_ID && env.MERCADOLIVRE_CLIENT_SECRET) {
     const productProvider = new MercadoLivreProductProvider(http, () =>
       integrations!.accessToken(env.DEFAULT_WORKSPACE_ID!, "mercadolivre"),
     );
@@ -376,6 +377,7 @@ if (env.OPENAI_API_KEY && env.DEFAULT_WORKSPACE_ID) {
 }
 const app = buildApp({
   webOrigin: env.WEB_ORIGIN,
+  mercadoLivreEnabled,
   ...(pinterestPilot ? { pinterestPilot } : {}),
   ...(facebookPilot ? { facebookPilot } : {}),
   ...(env.META_CLIENT_SECRET&&integrationRepository?{metaCompliance:{handle:async(signedRequest:string)=>{const[encodedSignature,payloadPart]=signedRequest.split(".");if(!encodedSignature||!payloadPart)throw new Error("invalid_signed_request");const decode=(value:string)=>Buffer.from(value.replace(/-/g,"+").replace(/_/g,"/"),"base64"),actual=decode(encodedSignature),expected=createHmac("sha256",env.META_CLIENT_SECRET!).update(payloadPart).digest();if(actual.length!==expected.length||!timingSafeEqual(actual,expected))throw new Error("invalid_signed_request");const payload=JSON.parse(decode(payloadPart).toString("utf8"))as{algorithm?:string;user_id?:string};if(payload.algorithm?.toUpperCase()!=="HMAC-SHA256"||!payload.user_id)throw new Error("invalid_signed_request");await integrationRepository!.disconnectByExternalIdentity("facebook",payload.user_id);return{confirmationCode:createHmac("sha256",env.META_CLIENT_SECRET!).update(`deletion:${payload.user_id}`).digest("hex").slice(0,32)}}}}:{}) ,

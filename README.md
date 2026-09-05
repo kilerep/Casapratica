@@ -11,14 +11,20 @@ Monólito modular com aplicações web, API e worker para apoiar pesquisa, sele�
 ## Início rápido
 
 ```bash
-corepack enable
-pnpm install
 docker compose -f infra/docker-compose.yml up -d
-cp .env.example .env
-pnpm dev
+npx pnpm@latest dev
 ```
 
-Web: http://localhost:3000 — API: http://localhost:3001/health.
+Abra `http://127.0.0.1:3000/app`. Essa é a tela principal do operador.
+
+Para diagnosticar e parar:
+
+```bash
+npx pnpm@latest doctor
+npx pnpm@latest dev:stop
+```
+
+`dev:stop` encerra somente o processo registrado pelo inicializador do CasaPrática. Os contêineres e dados locais são preservados.
 
 ## Qualidade
 

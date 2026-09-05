@@ -212,6 +212,7 @@ export function buildApp(
     settingsOverview?: SettingsOverviewApiService;
     assistedPublication?: AssistedPublicationApiService;
     productDiscovery?: ProductDiscoveryApiService;
+    mercadoLivreEnabled?: boolean;
     readiness?: () => Promise<ReadinessResult>;
     pinterestPilot?: PinterestPilotService;
     facebookPilot?: FacebookPilotService;
@@ -232,6 +233,7 @@ export function buildApp(
     },
   });
   const webOrigin = options.webOrigin ?? "http://localhost:3000";
+  app.addHook("onRequest",async(request,reply)=>{if(request.method==="POST"&&request.url.startsWith("/api/integrations/mercadolivre/")&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})});
   app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/product-discovery")){reply.header("Cache-Control","no-store");if(request.method==="POST"&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})}});
   app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/assisted-publication")){reply.header("Cache-Control","no-store");if(request.method==="POST"&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})}});
   app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/facebook/pilot")){reply.header("Cache-Control","no-store").header("Referrer-Policy","no-referrer");if(request.method==="POST"&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})}});
@@ -425,20 +427,18 @@ export function buildApp(
       throw new Error("unknown_provider");
     return value as ProviderName;
   };
-  app.get("/api/integrations", async (_request, reply) =>
-    options.integrations && options.workspaceId
-      ? options.integrations.list(options.workspaceId)
-      : reply.code(503).send({ error: "integrations_not_configured" }),
-  );
+  app.get("/api/integrations", async (_request, reply) => {if(!options.integrations||!options.workspaceId)return reply.code(503).send({error:"integrations_not_configured"});const values=await options.integrations.list(options.workspaceId);return values.map(value=>value.provider==="mercadolivre"&&options.mercadoLivreEnabled===false?{provider:"mercadolivre",status:"integration_disabled",connected:false,userId:null,nickname:null,expiresAt:null,capabilities:{},lastSafeError:null}:value)});
   app.get<{ Params: { provider: string } }>(
     "/api/integrations/:provider/status",
-    async (request, reply) =>
-      options.integrations && options.workspaceId
-        ? options.integrations.status(
+    async (request, reply) => {
+      if(request.params.provider==="mercadolivre"&&options.mercadoLivreEnabled===false)return {provider:"mercadolivre",status:"integration_disabled",connected:false,userId:null,nickname:null,expiresAt:null,capabilities:{},lastSafeError:null};
+      if(!options.integrations||!options.workspaceId)return reply.code(503).send({error:"integrations_not_configured"});
+      const result=await options.integrations.status(
             options.workspaceId,
             provider(request.params.provider),
-          )
-        : reply.code(503).send({ error: "integrations_not_configured" }),
+          );
+      const identity=result as typeof result&{displayName?:string|null;connectedAt?:Date|null};return request.params.provider==="mercadolivre"?{provider:"mercadolivre",status:result.status,connected:result.status==="connected",userId:result.externalAccountId??null,nickname:identity.displayName??null,connectedAt:identity.connectedAt??null,expiresAt:result.expiresAt,capabilities:result.capabilities??{},lastSafeError:result.status==="error"?"Falha ao validar a conexão.":null}:result;
+    },
   );
   app.get<{ Params: { provider: string }; Querystring: { test?: string } }>(
     "/api/integrations/:provider/connect",
@@ -454,15 +454,15 @@ export function buildApp(
         options.workspaceId,
         provider(request.params.provider),
       );
-      if (request.params.provider === "pinterest") {
+      if (request.params.provider === "pinterest" || request.params.provider === "mercadolivre") {
         const state = new URL(url).searchParams.get("state");
         reply.header(
           "Set-Cookie",
-          `pinterest_oauth=${createHash("sha256")
+          `${request.params.provider}_oauth=${createHash("sha256")
             .update(state ?? "")
             .digest(
               "hex",
-            )}; HttpOnly; SameSite=Lax; Path=/api/integrations/pinterest; Max-Age=600${url.includes("redirect_uri=https") ? "; Secure" : ""}`,
+            )}; HttpOnly; SameSite=Lax; Path=/api/integrations/${request.params.provider}; Max-Age=600${url.includes("redirect_uri=https") ? "; Secure" : ""}`,
         );
       }
       if(request.params.provider==="meta"||request.params.provider==="facebook"){const state=new URL(url).searchParams.get("state");reply.header("Set-Cookie",`meta_oauth=${createHash("sha256").update(state??"").digest("hex")}; HttpOnly; SameSite=Lax; Path=/api/integrations; Max-Age=600${url.includes("redirect_uri=https")?"; Secure":""}`)}
@@ -475,12 +475,13 @@ export function buildApp(
   }>("/api/integrations/:provider/callback", async (request, reply) => {
     if (!options.integrations || !request.query.state)
       return reply.code(400).send({ error: "invalid_callback" });
-    if (request.params.provider === "pinterest") {
+    if (request.params.provider === "pinterest" || request.params.provider === "mercadolivre") {
+      const cookieName=`${request.params.provider}_oauth=`;
       const cookie = request.headers.cookie
         ?.split(";")
         .map((v) => v.trim())
-        .find((v) => v.startsWith("pinterest_oauth="))
-        ?.slice("pinterest_oauth=".length);
+        .find((v) => v.startsWith(cookieName))
+        ?.slice(cookieName.length);
       if (
         cookie !==
         createHash("sha256").update(request.query.state).digest("hex")
@@ -488,7 +489,7 @@ export function buildApp(
         return reply.code(400).send({ error: "invalid_oauth_browser" });
       reply.header(
         "Set-Cookie",
-        "pinterest_oauth=; HttpOnly; SameSite=Lax; Path=/api/integrations/pinterest; Max-Age=0",
+        `${request.params.provider}_oauth=; HttpOnly; SameSite=Lax; Path=/api/integrations/${request.params.provider}; Max-Age=0`,
       );
     }
     if(request.params.provider==="meta"||request.params.provider==="facebook"){const cookie=request.headers.cookie?.split(";").map(v=>v.trim()).find(v=>v.startsWith("meta_oauth="))?.slice(11);if(cookie!==createHash("sha256").update(request.query.state).digest("hex"))return reply.code(400).send({error:"invalid_oauth_browser"});reply.header("Set-Cookie","meta_oauth=; HttpOnly; SameSite=Lax; Path=/api/integrations; Max-Age=0")}
@@ -498,7 +499,7 @@ export function buildApp(
         request.query.error ? "" : (request.query.code ?? ""),
         request.query.state,
       );
-      return request.params.provider === "pinterest"||request.params.provider === "meta"
+      return request.params.provider === "pinterest"||request.params.provider === "meta"||request.params.provider === "mercadolivre"
         ? reply.redirect(`${webOrigin}/integrations?oauth=connected`)
         : result;
     } catch {
