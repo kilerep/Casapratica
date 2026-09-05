@@ -233,14 +233,16 @@ export function buildApp(
     },
   });
   const webOrigin = options.webOrigin ?? "http://localhost:3000";
-  app.addHook("onRequest",async(request,reply)=>{if(request.method==="POST"&&request.url.startsWith("/api/integrations/mercadolivre/")&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})});
-  app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/product-discovery")){reply.header("Cache-Control","no-store");if(request.method==="POST"&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})}});
-  app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/assisted-publication")){reply.header("Cache-Control","no-store");if(request.method==="POST"&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})}});
-  app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/facebook/pilot")){reply.header("Cache-Control","no-store").header("Referrer-Policy","no-referrer");if(request.method==="POST"&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})}});
+  const allowedWebOrigins=new Set([webOrigin,...(/^http:\/\/(?:localhost|127\.0\.0\.1):3000$/.test(webOrigin)?["http://localhost:3000","http://127.0.0.1:3000"]:[])]);
+  app.addHook("onRequest",async(request,reply)=>{if(!request.url.startsWith("/api/")&&!request.url.startsWith("/health")&&!request.url.startsWith("/ready"))return;const origin=request.headers.origin;if(origin&&allowedWebOrigins.has(origin))reply.header("Access-Control-Allow-Origin",origin).header("Vary","Origin");if(request.method==="OPTIONS"){if(!origin||!allowedWebOrigins.has(origin))return reply.code(403).send({error:"origin_required"});return reply.header("Access-Control-Allow-Methods","GET, POST, DELETE, OPTIONS").header("Access-Control-Allow-Headers","Content-Type").header("Access-Control-Max-Age","600").code(204).send()}});
+  app.addHook("onRequest",async(request,reply)=>{if(request.method==="POST"&&request.url.startsWith("/api/integrations/mercadolivre/")&&!allowedWebOrigins.has(request.headers.origin??""))return reply.code(403).send({error:"origin_required"})});
+  app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/product-discovery")){reply.header("Cache-Control","no-store");const origin=request.headers.origin;if(origin&&allowedWebOrigins.has(origin))reply.header("Access-Control-Allow-Origin",origin).header("Vary","Origin");if(request.method==="OPTIONS"){if(!origin||!allowedWebOrigins.has(origin))return reply.code(403).send({error:"origin_required"});return reply.header("Access-Control-Allow-Methods","GET, POST, OPTIONS").header("Access-Control-Allow-Headers","Content-Type").header("Access-Control-Max-Age","600").code(204).send()}if(request.method==="POST"&&(!origin||!allowedWebOrigins.has(origin)))return reply.code(403).send({error:"origin_required"})}});
+  app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/assisted-publication")){reply.header("Cache-Control","no-store");if(request.method==="POST"&&!allowedWebOrigins.has(request.headers.origin??""))return reply.code(403).send({error:"origin_required"})}});
+  app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/facebook/pilot")){reply.header("Cache-Control","no-store").header("Referrer-Policy","no-referrer");if(request.method==="POST"&&!allowedWebOrigins.has(request.headers.origin??""))return reply.code(403).send({error:"origin_required"})}});
   app.addHook("onRequest", async (request, reply) => {
     if (request.url.includes("/review")) {
       reply.header("Cache-Control", "no-store");
-      if (request.method === "POST" && request.headers.origin !== webOrigin)
+      if (request.method === "POST" && !allowedWebOrigins.has(request.headers.origin??""))
         return reply.code(403).send({ error: "origin_required" });
     }
   });
@@ -256,7 +258,7 @@ export function buildApp(
         request.method === "POST" &&
         (request.url.startsWith("/api/integrations/pinterest/") ||
           request.url.startsWith("/api/pinterest/pilot")) &&
-        request.headers.origin !== webOrigin
+        !allowedWebOrigins.has(request.headers.origin??"")
       )
         return reply.code(403).send({ error: "origin_required" });
     }
@@ -379,7 +381,7 @@ export function buildApp(
   });
   const assistedUnavailable=(reply:FastifyReply)=>reply.code(503).send({error:"assisted_publication_not_configured"});
   app.get("/api/assisted-publication/products",async(_request,reply)=>options.assistedPublication&&options.workspaceId?options.assistedPublication.products(options.workspaceId):assistedUnavailable(reply));
-  const discoveryUnavailable=(reply:FastifyReply)=>reply.code(503).send({status:"not_connected",connected:false,message:"Mercado Livre ainda não conectado.",run:null,opportunities:[]});
+  const discoveryUnavailable=(_reply:FastifyReply)=>({status:"not_connected",connected:false,message:"Mercado Livre ainda não conectado.",run:null,opportunities:[]});
   app.post("/api/product-discovery/run",async(_request,reply)=>options.productDiscovery&&options.workspaceId?options.productDiscovery.run(options.workspaceId):discoveryUnavailable(reply));
   app.get("/api/product-discovery/latest",async(_request,reply)=>options.productDiscovery&&options.workspaceId?options.productDiscovery.latest(options.workspaceId):discoveryUnavailable(reply));
   app.get("/api/product-discovery/opportunities",async(_request,reply)=>options.productDiscovery&&options.workspaceId?options.productDiscovery.opportunities(options.workspaceId):discoveryUnavailable(reply));
@@ -427,7 +429,7 @@ export function buildApp(
       throw new Error("unknown_provider");
     return value as ProviderName;
   };
-  app.get("/api/integrations", async (_request, reply) => {if(!options.integrations||!options.workspaceId)return reply.code(503).send({error:"integrations_not_configured"});const values=await options.integrations.list(options.workspaceId);return values.map(value=>value.provider==="mercadolivre"&&options.mercadoLivreEnabled===false?{provider:"mercadolivre",status:"integration_disabled",connected:false,userId:null,nickname:null,expiresAt:null,capabilities:{},lastSafeError:null}:value)});
+  app.get("/api/integrations", async () => {if(!options.integrations||!options.workspaceId)return[{provider:"mercadolivre",status:"integration_disabled",connected:false,capabilities:{}},{provider:"pinterest",status:"not_configured",connected:false,capabilities:{}},{provider:"facebook",status:"not_configured",connected:false,capabilities:{}}];const values=await options.integrations.list(options.workspaceId);return values.map(value=>value.provider==="mercadolivre"&&options.mercadoLivreEnabled===false?{provider:"mercadolivre",status:"integration_disabled",connected:false,userId:null,nickname:null,expiresAt:null,capabilities:{},lastSafeError:null}:value)});
   app.get<{ Params: { provider: string } }>(
     "/api/integrations/:provider/status",
     async (request, reply) => {

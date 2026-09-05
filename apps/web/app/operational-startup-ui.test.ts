@@ -1,0 +1,3 @@
+import{readFileSync}from"node:fs";import{resolve}from"node:path";import{describe,expect,it}from"vitest";
+const page=readFileSync(resolve("app/app/page.tsx"),"utf8"),check=readFileSync(resolve("app/app/operational-startup-check.tsx"),"utf8");
+describe("operational startup UI",()=>{it("separa núcleo de integrações opcionais",()=>{for(const text of ["Núcleo operacional","Integrações opcionais","CASAPRÁTICA PRONTO PARA USO ASSISTIDO","Publicação assistida","Não conectado"])expect(check).toContain(text)});it("aceita o corpo detalhado de ready e mantém fallback manual",()=>{expect(page).toContain('request<Ready>("/ready",true)');expect(page).toContain("Mercado Livre ainda não conectado");expect(page).toContain("Adicione um produto manualmente")})});
