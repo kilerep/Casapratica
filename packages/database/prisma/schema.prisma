@@ -85,6 +85,7 @@ model Workspace {
   oauthStates OAuthState[]
   agentSessions AgentSession[]
   auditLogs AuditLog[]
+  assistedPublicationPacks AssistedPublicationPack[]
 }
 
 model Category {
@@ -150,9 +151,34 @@ model Product {
   publications Publication[]
   metricSnapshots MetricSnapshot[]
   conversions Conversion[]
+  assistedPublicationPacks AssistedPublicationPack[]
   @@unique([workspaceId, marketplace, externalId])
   @@index([workspaceId, status])
   @@index([categoryId])
+}
+
+model AssistedPublicationPack {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  productId String @db.Uuid
+  platform String
+  image String?
+  title String?
+  body String
+  destinationUrl String
+  affiliateUrl String?
+  boardSuggestion String?
+  keywords String[] @default([])
+  manualSteps Json
+  contentFingerprint String
+  status String @default("READY")
+  generatedAt DateTime @default(now())
+  manuallyPublishedAt DateTime?
+  manuallyPublishedBy String?
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@index([workspaceId, generatedAt])
+  @@index([workspaceId, productId, platform])
 }
 
 model ProductResearchRun {
@@ -467,6 +493,14 @@ model IntegrationAccount {
   refreshTokenCiphertext Bytes?
   refreshTokenIv Bytes?
   refreshTokenAuthTag Bytes?
+  selectedPageId String?
+  selectedPageName String?
+  selectedPageCategory String?
+  selectedPageTasks String[] @default([])
+  selectedPageSelectedAt DateTime?
+  pageTokenCiphertext Bytes?
+  pageTokenIv Bytes?
+  pageTokenAuthTag Bytes?
   tokenExpiresAt DateTime?
   scopes String[]
   createdAt DateTime @default(now())

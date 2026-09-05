@@ -1,8 +1,16 @@
 import { PinterestPilotService, pinterestReadiness } from "./pinterest-pilot.js";
+import { FacebookPilotService } from "./facebook-pilot.js";
+import { AssistedPublicationService } from "./assisted-publication.js";
+import { resolveOperationalWorkspace } from "./operational-workspace.js";
+import{createHmac,timingSafeEqual}from"node:crypto";
+import {loadEnvFile} from "node:process";
+import {fileURLToPath} from "node:url";
 import { z } from "zod";
 import {
   canUseTestPublishingProvider,
+  applyLocalDevelopmentDefaults,
   loadFeatureFlags,
+  resolveOperationalMode,
 } from "@casapratica/config";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
@@ -35,9 +43,13 @@ import {
   PrismaAnalyticsRepository,
   PrismaDashboardRepository,
   PrismaProductReviewRepository,
+  PrismaMetaPageRepository,
+  PrismaAssistedPublicationRepository,
+  PrismaWorkspaceRepository,
 } from "@casapratica/database";
 import {
   FacebookPageProvider,
+  FacebookPublishingProvider,
   FetchHttpClient,
   IntegrationProviderRegistry,
   IntegrationService,
@@ -65,6 +77,11 @@ import {
 import { buildApp } from "./app.js";
 import { BullMqPublicationScheduler } from "./publication-scheduler.js";
 
+const loadEnvironmentIfPresent=(path:string)=>{try{loadEnvFile(path)}catch(error){if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error}};
+loadEnvironmentIfPresent(fileURLToPath(new URL("../../../.env", import.meta.url)));
+loadEnvironmentIfPresent(fileURLToPath(new URL("../../../.env.local", import.meta.url)));
+applyLocalDevelopmentDefaults(process.env);
+
 const env = z
   .object({
     WEB_ORIGIN: z.url().default("http://localhost:3000"),
@@ -86,6 +103,7 @@ const env = z
     META_CLIENT_ID: z.string().optional(),
     META_CLIENT_SECRET: z.string().optional(),
     META_GRAPH_API_VERSION: z.string().optional(),
+    META_LOGIN_CONFIGURATION_ID: z.string().min(1).optional(),
     META_REDIRECT_URI: z
       .url()
       .default("http://localhost:3001/api/integrations/facebook/callback"),
@@ -94,12 +112,19 @@ const env = z
     MERCADOLIVRE_REDIRECT_URI: z
       .url()
       .default("http://localhost:3001/api/integrations/mercadolivre/callback"),
+    PUBLIC_SITE_URL: z.url().optional(),
+    NEXT_PUBLIC_CONTACT_EMAIL: z.string().email().optional(),
   })
   .parse(process.env);
 const prisma = createPrismaClient();
 const flags = loadFeatureFlags(process.env);
+const operationalMode=resolveOperationalMode(process.env);
+const operationalWorkspace=await resolveOperationalWorkspace(new PrismaWorkspaceRepository(prisma),{configuredId:env.DEFAULT_WORKSPACE_ID,mode:operationalMode});
+env.DEFAULT_WORKSPACE_ID=operationalWorkspace.id;
 let integrations: IntegrationService | undefined;
+let integrationRepository:PrismaIntegrationRepository|undefined;
 let pinterestPilot: PinterestPilotService | undefined;
+let facebookPilot: FacebookPilotService | undefined;
 const tools = new ToolRegistry();
 const content = env.DEFAULT_WORKSPACE_ID
   ? new ContentEngine(new PrismaContentRepository(prisma))
@@ -127,6 +152,9 @@ const dashboard = env.DEFAULT_WORKSPACE_ID
   : undefined;
 const productReview = env.DEFAULT_WORKSPACE_ID
   ? new PrismaProductReviewRepository(prisma)
+  : undefined;
+const assistedPublication = content
+  ? new AssistedPublicationService(new PrismaAssistedPublicationRepository(prisma), content)
   : undefined;
 const scheduler =
   env.REDIS_URL && flags.ENABLE_SCHEDULED_PUBLISHING
@@ -221,7 +249,7 @@ if (env.INTEGRATION_ENCRYPTION_KEY && env.DEFAULT_WORKSPACE_ID) {
         env.META_CLIENT_SECRET,
         env.META_GRAPH_API_VERSION,
         http,
-        { realPublishingEnabled: flags.ENABLE_REAL_FACEBOOK_PUBLISHING },
+        { pilotEnabled: flags.ENABLE_META_PILOT, realPublishingEnabled: flags.ENABLE_REAL_FACEBOOK_PUBLISHING, ...(env.META_LOGIN_CONFIGURATION_ID ? { configurationId: env.META_LOGIN_CONFIGURATION_ID } : {}) },
       ),
     );
   if (env.MERCADOLIVRE_CLIENT_ID && env.MERCADOLIVRE_CLIENT_SECRET)
@@ -232,9 +260,10 @@ if (env.INTEGRATION_ENCRYPTION_KEY && env.DEFAULT_WORKSPACE_ID) {
         http,
       ),
     );
+  integrationRepository=new PrismaIntegrationRepository(prisma);
   integrations = new IntegrationService(
     registry,
-    new PrismaIntegrationRepository(prisma),
+    integrationRepository,
     new PrismaOAuthStateRepository(prisma),
     new TokenCipher(encryptionKeySchema.parse(env.INTEGRATION_ENCRYPTION_KEY)),
     {
@@ -289,6 +318,7 @@ if (env.INTEGRATION_ENCRYPTION_KEY && env.DEFAULT_WORKSPACE_ID) {
         integrations!.accessToken(env.DEFAULT_WORKSPACE_ID!, "facebook"),
       ),
     );
+  if(flags.ENABLE_META_PILOT&&registry.has("facebook")&&operationsRepository){const pageRepository=new PrismaMetaPageRepository(prisma,new TokenCipher(encryptionKeySchema.parse(env.INTEGRATION_ENCRYPTION_KEY)));const pageProvider=new FacebookPageProvider(env.META_GRAPH_API_VERSION!,http,()=>integrations!.accessToken(env.DEFAULT_WORKSPACE_ID!,"facebook"));facebookPilot=new FacebookPilotService(Object.assign(operationsRepository,{selected:(w:string)=>pageRepository.selected(w),select:(w:string,a:string,p:Parameters<typeof pageRepository.select>[2])=>pageRepository.select(w,a,p),audit:(w:string,a:string,r:string,m?:Record<string,unknown>)=>pageRepository.audit(w,a,r,m)}),integrations,pageProvider,new FacebookPublishingProvider(env.META_GRAPH_API_VERSION!,http,()=>pageRepository.pageToken(env.DEFAULT_WORKSPACE_ID!),()=>flags.ENABLE_META_PILOT&&flags.ENABLE_REAL_FACEBOOK_PUBLISHING),()=>({pilot:flags.ENABLE_META_PILOT,publishing:flags.ENABLE_REAL_FACEBOOK_PUBLISHING}))}
   if (env.MERCADOLIVRE_CLIENT_ID && env.MERCADOLIVRE_CLIENT_SECRET) {
     const productProvider = new MercadoLivreProductProvider(http, () =>
       integrations!.accessToken(env.DEFAULT_WORKSPACE_ID!, "mercadolivre"),
@@ -345,6 +375,8 @@ if (env.OPENAI_API_KEY && env.DEFAULT_WORKSPACE_ID) {
 const app = buildApp({
   webOrigin: env.WEB_ORIGIN,
   ...(pinterestPilot ? { pinterestPilot } : {}),
+  ...(facebookPilot ? { facebookPilot } : {}),
+  ...(env.META_CLIENT_SECRET&&integrationRepository?{metaCompliance:{handle:async(signedRequest:string)=>{const[encodedSignature,payloadPart]=signedRequest.split(".");if(!encodedSignature||!payloadPart)throw new Error("invalid_signed_request");const decode=(value:string)=>Buffer.from(value.replace(/-/g,"+").replace(/_/g,"/"),"base64"),actual=decode(encodedSignature),expected=createHmac("sha256",env.META_CLIENT_SECRET!).update(payloadPart).digest();if(actual.length!==expected.length||!timingSafeEqual(actual,expected))throw new Error("invalid_signed_request");const payload=JSON.parse(decode(payloadPart).toString("utf8"))as{algorithm?:string;user_id?:string};if(payload.algorithm?.toUpperCase()!=="HMAC-SHA256"||!payload.user_id)throw new Error("invalid_signed_request");await integrationRepository!.disconnectByExternalIdentity("facebook",payload.user_id);return{confirmationCode:createHmac("sha256",env.META_CLIENT_SECRET!).update(`deletion:${payload.user_id}`).digest("hex").slice(0,32)}}}}:{}) ,
   ...(aiChat ? { aiChat } : {}),
   ...(integrations ? { integrations } : {}),
   ...(content ? { content } : {}),
@@ -355,7 +387,77 @@ const app = buildApp({
   ...(analytics ? { analytics } : {}),
   ...(dashboard ? { dashboard } : {}),
   ...(productReview ? { productReview } : {}),
+  ...(assistedPublication ? { assistedPublication } : {}),
+  settingsOverview: {
+    overview: async () => {
+      const readiness = await getReadiness();
+      const accounts = integrations && env.DEFAULT_WORKSPACE_ID
+        ? await integrations.list(env.DEFAULT_WORKSPACE_ID)
+        : [];
+      const byProvider = new Map(accounts.map((account) => [account.provider, account]));
+      const configured = {
+        pinterest: Boolean(env.PINTEREST_CLIENT_ID && env.PINTEREST_CLIENT_SECRET),
+        facebook: Boolean(env.META_CLIENT_ID && env.META_CLIENT_SECRET && env.META_GRAPH_API_VERSION),
+        mercadolivre: Boolean(env.MERCADOLIVRE_CLIENT_ID && env.MERCADOLIVRE_CLIENT_SECRET),
+      };
+      const integration = (provider: "pinterest" | "facebook" | "mercadolivre") => {
+        const account = byProvider.get(provider);
+        return {
+          provider,
+          configured: configured[provider],
+          connected: account?.status === "connected",
+          status: (provider === "pinterest" && !flags.ENABLE_PINTEREST_PILOT) || (provider === "facebook" && !flags.ENABLE_META_PILOT)
+            ? "pilot_disabled"
+            : account?.status ?? (configured[provider] ? "disconnected" : "not_configured"),
+          capabilities: account?.capabilities ?? {},
+          scopes: account?.scopes ?? [],
+          lastError: account?.status === "error" ? "Falha de conexão. Reconecte a integração." : null,
+          action: configured[provider] ? "/integrations" : null,
+        };
+      };
+      const alerts = operations && env.DEFAULT_WORKSPACE_ID
+        ? await operations.alerts(env.DEFAULT_WORKSPACE_ID)
+        : [];
+      return {
+        mode: env.NODE_ENV === "development" ? "LOCAL" : env.INTEGRATION_MODE,
+        readiness,
+        system: {
+          api: "available",
+          postgresql: readiness.database,
+          redis: readiness.redis,
+          worker: readiness.worker,
+          queue: readiness.redis === "available" ? "available" : readiness.redis,
+          creativeStudio: creative ? "available" : "not_configured",
+          analytics: analytics ? "available" : "not_configured",
+        },
+        integrations: [integration("pinterest"), integration("facebook"), integration("mercadolivre")],
+        publicSite: env.PUBLIC_SITE_URL ? {
+          url: env.PUBLIC_SITE_URL,
+          privacy: new URL("/privacidade", env.PUBLIC_SITE_URL).toString(),
+          terms: new URL("/termos", env.PUBLIC_SITE_URL).toString(),
+        } : null,
+        contactEmail: env.NEXT_PUBLIC_CONTACT_EMAIL ?? null,
+        flags: {
+          pinterestPilot: flags.ENABLE_PINTEREST_PILOT,
+          metaPilot: flags.ENABLE_META_PILOT,
+          pinterestRealPublishing: flags.ENABLE_REAL_PINTEREST_PUBLISHING,
+          facebookRealPublishing: flags.ENABLE_REAL_FACEBOOK_PUBLISHING,
+          autopilot: flags.ENABLE_AUTOPILOT,
+          realMetricsImport: flags.ENABLE_REAL_METRICS_IMPORT,
+          testPublishingProvider: canUseTestPublishingProvider(process.env),
+        },
+        alerts,
+      };
+    },
+  },
   readiness: async () => {
+    return getReadiness();
+  },
+  ...(env.DEFAULT_WORKSPACE_ID
+    ? { workspaceId: env.DEFAULT_WORKSPACE_ID }
+    : {}),
+});
+async function getReadiness() {
     let database = "unavailable",
       redis = "not_configured",
       worker = "not_configured";
@@ -385,7 +487,7 @@ const app = buildApp({
         connection.disconnect();
       }
     }
-    const status =
+    const status: "ready" | "degraded" | "not_ready" =
       database !== "available" || redis === "unavailable"
         ? "not_ready"
         : worker === "degraded"
@@ -399,19 +501,15 @@ const app = buildApp({
       integrations: {
         mercadolivre: "optional",
         pinterest: await pinterestReadiness(flags.ENABLE_PINTEREST_PILOT,integrations,env.DEFAULT_WORKSPACE_ID),
-        meta: "optional",
+        meta: !flags.ENABLE_META_PILOT ? "pilot_disabled" : (await integrations?.status(env.DEFAULT_WORKSPACE_ID!, "facebook"))?.status ?? "not_configured",
       },
-      externalPublishing:
+      externalPublishing: (
         flags.ENABLE_REAL_PINTEREST_PUBLISHING ||
         flags.ENABLE_REAL_FACEBOOK_PUBLISHING
           ? "enabled"
-          : "disabled",
+          : "disabled") as "enabled" | "disabled",
     };
-  },
-  ...(env.DEFAULT_WORKSPACE_ID
-    ? { workspaceId: env.DEFAULT_WORKSPACE_ID }
-    : {}),
-});
+}
 try {
   await app.listen({
     host: flags.ENABLE_PINTEREST_PILOT ? "127.0.0.1" : env.API_HOST,

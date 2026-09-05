@@ -1,0 +1,3 @@
+"use client";
+import {useState} from "react";
+export function ProductImage({src,alt}:{src:string|null;alt:string}){const[state,setState]=useState<"loading"|"ready"|"error">(src?"loading":"error");if(!src||state==="error")return <div className="assisted-image-fallback" role="img" aria-label={`Imagem não disponível para ${alt}`}><span>CasaPrática</span><small>Imagem não disponível</small></div>;return <div className="assisted-image-wrap">{state==="loading"&&<div className="assisted-image-loading">Carregando imagem…</div>}<img src={src} alt={alt} onLoad={()=>setState("ready")} onError={()=>setState("error")} style={{opacity:state==="ready"?1:0}}/></div>}

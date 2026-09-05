@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PinterestPilotService } from "./pinterest-pilot.js";
+import type { FacebookPilotService } from "./facebook-pilot.js";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import type { CreativeRequest } from "@casapratica/domain";
 import { chatRequestSchema, type AIChatService } from "@casapratica/agents";
@@ -173,6 +174,16 @@ interface ProductReviewApiService {
   detail(workspaceId: string, id: string): Promise<unknown>;
   decide(workspaceId: string, id: string, status: "approved" | "test" | "rejected", actorId: string, comment: string | null): Promise<unknown>;
 }
+interface SettingsOverviewApiService {
+  overview(): Promise<unknown>;
+}
+interface AssistedPublicationApiService {
+  products(workspaceId:string):Promise<unknown>;
+  manualProduct(workspaceId:string,input:{productUrl:string;affiliateUrl?:string|null|undefined;name:string;category:string;price?:number|null|undefined;rating?:number|null|undefined;reviewCount?:number|null|undefined;seller?:string|null|undefined;imageUrl?:string|null|undefined;confirmedFacts?:string|null|undefined}):Promise<unknown>;
+  prepare(workspaceId:string,productId:string,platform:"pinterest"|"facebook"):Promise<unknown>;
+  markPublished(workspaceId:string,id:string,actor:string,date:Date):Promise<unknown>;
+  history(workspaceId:string):Promise<unknown>;
+}
 type ReadinessResult = {
   status: "ready" | "degraded" | "not_ready";
   database: string;
@@ -197,8 +208,12 @@ export function buildApp(
     analytics?: AnalyticsApiService;
     dashboard?: DashboardApiService;
     productReview?: ProductReviewApiService;
+    settingsOverview?: SettingsOverviewApiService;
+    assistedPublication?: AssistedPublicationApiService;
     readiness?: () => Promise<ReadinessResult>;
     pinterestPilot?: PinterestPilotService;
+    facebookPilot?: FacebookPilotService;
+    metaCompliance?: { handle(signedRequest:string):Promise<{confirmationCode:string}> };
     webOrigin?: string;
     workspaceId?: string;
   } = {},
@@ -215,6 +230,8 @@ export function buildApp(
     },
   });
   const webOrigin = options.webOrigin ?? "http://localhost:3000";
+  app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/assisted-publication")){reply.header("Cache-Control","no-store");if(request.method==="POST"&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})}});
+  app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/facebook/pilot")){reply.header("Cache-Control","no-store").header("Referrer-Policy","no-referrer");if(request.method==="POST"&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})}});
   app.addHook("onRequest", async (request, reply) => {
     if (request.url.includes("/review")) {
       reply.header("Cache-Control", "no-store");
@@ -313,6 +330,7 @@ export function buildApp(
     },
   );
   app.get("/health", async () => ({ status: "ok" as const }));
+  for(const path of ["/api/integrations/meta/deauthorize","/api/integrations/meta/data-deletion"]){app.post(path,async(request,reply)=>{const input=z.object({signed_request:z.string().min(1)}).safeParse(request.body);if(!input.success||!options.metaCompliance)return reply.code(400).send({error:"invalid_signed_request"});try{const result=await options.metaCompliance.handle(input.data.signed_request);return path.endsWith("data-deletion")?{url:`${webOrigin}/privacidade?deletion=${result.confirmationCode}`,confirmation_code:result.confirmationCode}:{status:"disconnected"}}catch{return reply.code(400).send({error:"invalid_signed_request"})}})}
   app.get("/ready", async (_request, reply) => {
     if (!options.readiness)
       return reply
@@ -331,6 +349,10 @@ export function buildApp(
     const result = await options.readiness();
     return reply.code(result.status === "not_ready" ? 503 : 200).send(result);
   });
+  app.get("/api/facebook/pilot/pages",async(_request,reply)=>options.facebookPilot&&options.workspaceId?options.facebookPilot.listPages(options.workspaceId).catch(()=>reply.code(422).send({error:"pages_unavailable"})):reply.code(503).send({error:"meta_pilot_disabled"}));
+  app.post("/api/facebook/pilot/page",async(request,reply)=>{const input=z.object({pageId:z.string().regex(/^\d+$/)}).safeParse(request.body);if(!input.success)return reply.code(400).send({error:"invalid_page"});if(!options.facebookPilot||!options.workspaceId)return reply.code(503).send({error:"meta_pilot_disabled"});try{return await options.facebookPilot.selectPage(options.workspaceId,input.data.pageId)}catch{return reply.code(422).send({error:"page_selection_blocked"})}});
+  app.post<{Params:{id:string}}>("/api/facebook/pilot/:id/dry-run",async(request,reply)=>{if(!options.facebookPilot||!options.workspaceId)return reply.code(503).send({error:"meta_pilot_disabled"});try{return await options.facebookPilot.dryRun(options.workspaceId,request.params.id)}catch{return reply.code(422).send({error:"dry_run_failed"})}});
+  app.post<{Params:{id:string}}>("/api/facebook/pilot/:id/publish",async(request,reply)=>{const input=z.object({confirmation:z.literal("PUBLISH_FACEBOOK_PAGE_POST"),fingerprint:z.string().regex(/^[a-f0-9]{64}$/),actorId:z.string().min(1).max(100)}).safeParse(request.body);if(!input.success)return reply.code(400).send({error:"manual_confirmation_required"});if(!options.facebookPilot||!options.workspaceId)return reply.code(503).send({error:"meta_pilot_disabled"});try{return await options.facebookPilot.publish(options.workspaceId,request.params.id,input.data.actorId,input.data.fingerprint)}catch{return reply.code(422).send({error:"publication_blocked_or_reconciliation_required"})}});
   app.get("/api/dashboard", async (_request, reply) => {
     if (!options.dashboard || !options.workspaceId)
       return reply.code(503).send({ error: "dashboard_not_configured" });
@@ -340,6 +362,22 @@ export function buildApp(
       return reply.code(503).send({ error: "dashboard_unavailable" });
     }
   });
+  app.get("/api/settings/overview", async (_request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    if (!options.settingsOverview)
+      return reply.code(503).send({ error: "settings_overview_not_configured" });
+    try {
+      return await options.settingsOverview.overview();
+    } catch {
+      return reply.code(503).send({ error: "settings_overview_unavailable" });
+    }
+  });
+  const assistedUnavailable=(reply:FastifyReply)=>reply.code(503).send({error:"assisted_publication_not_configured"});
+  app.get("/api/assisted-publication/products",async(_request,reply)=>options.assistedPublication&&options.workspaceId?options.assistedPublication.products(options.workspaceId):assistedUnavailable(reply));
+  app.get("/api/assisted-publication/history",async(_request,reply)=>options.assistedPublication&&options.workspaceId?options.assistedPublication.history(options.workspaceId):assistedUnavailable(reply));
+  app.post("/api/assisted-publication/manual-product",async(request,reply)=>{const input=z.object({productUrl:z.url(),affiliateUrl:z.url().nullable().optional(),name:z.string().trim().min(2).max(200),category:z.string().trim().min(2).max(100),price:z.number().nonnegative().nullable().optional(),rating:z.number().min(0).max(5).nullable().optional(),reviewCount:z.number().int().nonnegative().nullable().optional(),seller:z.string().trim().max(160).nullable().optional(),imageUrl:z.url().nullable().optional(),confirmedFacts:z.string().trim().max(2000).nullable().optional()}).safeParse(request.body);if(!input.success)return reply.code(400).send({error:"invalid_manual_product",issues:input.error.issues});if(!options.assistedPublication||!options.workspaceId)return assistedUnavailable(reply);return options.assistedPublication.manualProduct(options.workspaceId,input.data)});
+  for(const platform of ["pinterest","facebook"] as const)app.post<{Params:{productId:string}}>(`/api/assisted-publication/:productId/${platform}`,async(request,reply)=>{if(!options.assistedPublication||!options.workspaceId)return assistedUnavailable(reply);try{return await options.assistedPublication.prepare(options.workspaceId,request.params.productId,platform)}catch(error){return reply.code(422).send({error:error instanceof Error?error.message:"assisted_preparation_failed"})}});
+  app.post<{Params:{id:string}}>("/api/assisted-publication/:id/manual-published",async(request,reply)=>{const input=z.object({actor:z.string().trim().min(2).max(100),date:z.iso.datetime().optional()}).safeParse(request.body);if(!input.success)return reply.code(400).send({error:"invalid_manual_publication"});if(!options.assistedPublication||!options.workspaceId)return assistedUnavailable(reply);try{return await options.assistedPublication.markPublished(options.workspaceId,request.params.id,input.data.actor,new Date(input.data.date??Date.now()))}catch(error){return reply.code(404).send({error:error instanceof Error?error.message:"assisted_pack_not_found"})}});
   const review = async (reply: FastifyReply, action: () => Promise<unknown>) => {
     if (!options.productReview || !options.workspaceId) return reply.code(503).send({ error: "product_review_not_configured" });
     try { return await action(); } catch (error) { return reply.code(error instanceof Error && error.message === "product_not_found" ? 404 : 422).send({ error: error instanceof Error ? error.message : "product_review_failed" }); }
@@ -375,6 +413,7 @@ export function buildApp(
     }
   });
   const provider = (value: string): ProviderName => {
+    if(value==="meta")return "facebook";
     if (!["pinterest", "facebook", "mercadolivre"].includes(value))
       throw new Error("unknown_provider");
     return value as ProviderName;
@@ -419,6 +458,7 @@ export function buildApp(
             )}; HttpOnly; SameSite=Lax; Path=/api/integrations/pinterest; Max-Age=600${url.includes("redirect_uri=https") ? "; Secure" : ""}`,
         );
       }
+      if(request.params.provider==="meta"||request.params.provider==="facebook"){const state=new URL(url).searchParams.get("state");reply.header("Set-Cookie",`meta_oauth=${createHash("sha256").update(state??"").digest("hex")}; HttpOnly; SameSite=Lax; Path=/api/integrations; Max-Age=600${url.includes("redirect_uri=https")?"; Secure":""}`)}
       return reply.redirect(url);
     },
   );
@@ -444,13 +484,14 @@ export function buildApp(
         "pinterest_oauth=; HttpOnly; SameSite=Lax; Path=/api/integrations/pinterest; Max-Age=0",
       );
     }
+    if(request.params.provider==="meta"||request.params.provider==="facebook"){const cookie=request.headers.cookie?.split(";").map(v=>v.trim()).find(v=>v.startsWith("meta_oauth="))?.slice(11);if(cookie!==createHash("sha256").update(request.query.state).digest("hex"))return reply.code(400).send({error:"invalid_oauth_browser"});reply.header("Set-Cookie","meta_oauth=; HttpOnly; SameSite=Lax; Path=/api/integrations; Max-Age=0")}
     try {
       const result = await options.integrations.callback(
         provider(request.params.provider),
         request.query.error ? "" : (request.query.code ?? ""),
         request.query.state,
       );
-      return request.params.provider === "pinterest"
+      return request.params.provider === "pinterest"||request.params.provider === "meta"
         ? reply.redirect(`${webOrigin}/integrations?oauth=connected`)
         : result;
     } catch {

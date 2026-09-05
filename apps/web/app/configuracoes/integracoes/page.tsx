@@ -7,7 +7,8 @@ type Status =
   | "connecting"
   | "connected"
   | "error"
-  | "token_expired";
+  | "token_expired"
+  | "pilot_disabled";
 type Connection = {
   provider: Provider;
   status: Status;
@@ -54,6 +55,7 @@ const labels: Record<Status, string> = {
   connected: "Conectado",
   error: "Erro",
   token_expired: "Token expirado",
+  pilot_disabled: "Piloto desligado",
 };
 export default function IntegrationsPage() {
   const [connections, setConnections] = useState<
@@ -190,9 +192,12 @@ export default function IntegrationsPage() {
         })}
       </section>
       <PinterestPilot />
+      <FacebookPilot />
     </main>
   );
 }
+
+function FacebookPilot(){const[pages,setPages]=useState<Array<{id:string;name:string;category:string|null;tasks:string[];selected:boolean}>>([]),[itemId,setItemId]=useState(""),[actorId,setActorId]=useState(""),[preview,setPreview]=useState<{ready:boolean;blockers:string[];warnings:string[];payload:unknown;selectedPage:{id:string;name:string}|null;fingerprint:string}|null>(null),[message,setMessage]=useState("");const load=async()=>{const r=await fetch("/api/facebook/pilot/pages");if(!r.ok){setMessage("Piloto desligado, integração desconectada ou páginas indisponíveis.");return}setPages(await r.json())};return <section className="card"><h2>Piloto Facebook / Meta manual</h2><p>Conecte o Facebook, escolha uma Página administrada e valide o post. Nada é publicado pelo dry-run.</p><button onClick={()=>void load()}>Listar minhas Páginas</button>{pages.map(page=><article key={page.id}><strong>{page.name}</strong><p>Page ID: {page.id} · {page.category??"Categoria não disponível"}</p><p>Tasks: {page.tasks.join(", ")||"Não informadas"}</p><button disabled={page.selected} onClick={async()=>{const r=await fetch("/api/facebook/pilot/page",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pageId:page.id})});if(r.ok){setMessage("Página selecionada. Itens dependentes exigirão nova aprovação.");await load()}}}>{page.selected?"Página selecionada":"Selecionar Página"}</button></article>)}<label>Item Facebook aprovado<input value={itemId} onChange={e=>{setItemId(e.target.value);setPreview(null)}}/></label><label>Identificação do operador<input value={actorId} onChange={e=>setActorId(e.target.value)}/></label><button disabled={!itemId} onClick={async()=>{const r=await fetch(`/api/facebook/pilot/${encodeURIComponent(itemId)}/dry-run`,{method:"POST"});if(r.ok)setPreview(await r.json());else setMessage("Dry-run bloqueado. Confira Página, aprovação e capabilities.")}}>Executar dry-run</button>{preview&&<><p>{preview.ready?"Validação concluída":preview.blockers.join(", ")}</p>{preview.warnings.includes("COMMENT_MANUAL_REQUIRED")&&<p>Link no comentário: MANUAL_REQUIRED</p>}<pre>{JSON.stringify(preview.payload,null,2)}</pre><button disabled={!preview.ready||!actorId} onClick={()=>{if(!window.confirm("Publicar este post REAL na Página Facebook agora?"))return;void fetch(`/api/facebook/pilot/${encodeURIComponent(itemId)}/publish`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirmation:"PUBLISH_FACEBOOK_PAGE_POST",fingerprint:preview.fingerprint,actorId})}).then(r=>{setPreview(null);setMessage(r.ok?"Publicação confirmada.":"Publicação bloqueada ou requer reconciliação.")})}}>Confirmar publicação real</button></>}<p role="status">{message}</p></section>}
 
 function PinterestPilot() {
   const [boards, setBoards] = useState<Array<{ id: string; name: string }>>([]),

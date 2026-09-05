@@ -375,6 +375,7 @@ export class PrismaOperationsRepository implements OperationsRepository {
       throw error;
     }
   }
+  async reserveFacebookPublication(workspaceId:string,item:QueueItem,key:string){try{await this.prisma.publication.create({data:{workspaceId,queueItemId:item.id,productId:item.productId,contentId:item.contentId,creativeAssetId:item.creativeAssetId,integrationAccountId:item.integrationAccountId,channel:"facebook",status:"publishing",idempotencyKey:key}})}catch(error){if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==="P2002")throw new Error("reconciliation_required");throw error}}
   async savePublication(
     workspaceId: string,
     item: QueueItem,

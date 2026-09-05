@@ -10,4 +10,7 @@ export * from "./operations-repository.js";
 export * from "./analytics-repository.js";
 export * from "./dashboard-repository.js";
 export * from "./product-review-repository.js";
+export * from "./meta-page-repository.js";
+export * from "./assisted-publication-repository.js";
+export * from "./workspace-repository.js";
 export type DatabaseRepository = { readonly kind: "postgresql" };

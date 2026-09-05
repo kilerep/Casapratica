@@ -132,6 +132,7 @@ export class IntegrationService {
       null,
       { provider },
     );
+    if(provider==="facebook")await this.accounts.appendAudit?.(workspaceId,"meta_oauth_started",null,{provider});
     return this.providers
       .get(provider)
       .getAuthorizationUrl({ ...proof, redirectUri })
@@ -187,6 +188,7 @@ export class IntegrationService {
           ),
         },
       );
+      if(provider==="facebook")await this.accounts.appendAudit?.(transaction.workspaceId,"meta_connected",account.id,{scopes:tokens.scopes});
       return {
         provider,
         status: account.status,
@@ -268,6 +270,7 @@ export class IntegrationService {
       account.id,
       { provider },
     );
+    if(provider==="facebook")await this.accounts.appendAudit?.(workspaceId,"meta_disconnected",account.id,{provider});
   }
   private async required(workspaceId: string, provider: ProviderName) {
     const account = await this.accounts.find(workspaceId, provider);

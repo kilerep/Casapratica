@@ -142,10 +142,12 @@ export class PrismaIntegrationRepository implements IntegrationRepository {
           refreshTokenIv: null,
           refreshTokenAuthTag: null,
           tokenExpiresAt: null,
+          selectedPageId:null,selectedPageName:null,selectedPageCategory:null,selectedPageTasks:[],selectedPageSelectedAt:null,pageTokenCiphertext:null,pageTokenIv:null,pageTokenAuthTag:null,
         },
       }),
     ]);
   }
+  async disconnectByExternalIdentity(provider:ProviderName,externalAccountId:string){const rows=await this.prisma.integrationAccount.findMany({where:{provider,externalAccountId}});for(const row of rows)await this.disconnect(row.id);return rows.length}
   async appendAudit(
     workspaceId: string,
     action: string,
