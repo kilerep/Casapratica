@@ -165,12 +165,16 @@ interface AnalyticsApiService {
   daily(w: string, p: { start: Date; end: Date }): Promise<unknown>;
   weekly(w: string, p: { start: Date; end: Date }): Promise<unknown>;
 }
+interface DashboardApiService {
+  snapshot(workspaceId: string): Promise<unknown>;
+}
 type ReadinessResult = {
   status: "ready" | "degraded" | "not_ready";
   database: string;
   redis: string;
   worker: string;
   integrations: Record<string, string>;
+  externalPublishing?: "enabled" | "disabled";
 };
 
 export function buildApp(
@@ -186,6 +190,7 @@ export function buildApp(
     creative?: CreativeApiService;
     operations?: OperationsApiService;
     analytics?: AnalyticsApiService;
+    dashboard?: DashboardApiService;
     readiness?: () => Promise<ReadinessResult>;
     pinterestPilot?: PinterestPilotService;
     webOrigin?: string;
@@ -312,6 +317,15 @@ export function buildApp(
         });
     const result = await options.readiness();
     return reply.code(result.status === "not_ready" ? 503 : 200).send(result);
+  });
+  app.get("/api/dashboard", async (_request, reply) => {
+    if (!options.dashboard || !options.workspaceId)
+      return reply.code(503).send({ error: "dashboard_not_configured" });
+    try {
+      return await options.dashboard.snapshot(options.workspaceId);
+    } catch {
+      return reply.code(503).send({ error: "dashboard_unavailable" });
+    }
   });
   app.post("/api/ai/chat", async (request, reply) => {
     const input = chatRequestSchema.safeParse(request.body);

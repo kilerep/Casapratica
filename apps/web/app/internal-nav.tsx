@@ -1,0 +1,5 @@
+import Link from "next/link";
+
+export function InternalNav() {
+  return <header className="internal-header"><Link className="internal-brand" href="/app">Casa<span>Prática</span></Link><nav aria-label="Navegação principal"><Link href="/app">Dashboard</Link><Link href="/app#produtos">Produtos</Link><Link href="/operations">Operações</Link><Link href="/creative-studio">Creative Studio</Link><Link href="/analytics">Analytics</Link><Link href="/integrations">Integrações</Link></nav></header>;
+}

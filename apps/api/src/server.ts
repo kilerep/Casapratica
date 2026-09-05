@@ -33,6 +33,7 @@ import {
   PrismaResearchRepository,
   PrismaTraceRepository,
   PrismaAnalyticsRepository,
+  PrismaDashboardRepository,
 } from "@casapratica/database";
 import {
   FacebookPageProvider,
@@ -119,6 +120,9 @@ const operationsRepository = env.DEFAULT_WORKSPACE_ID
   : undefined;
 const analytics = env.DEFAULT_WORKSPACE_ID
   ? new PerformanceIntelligenceService(new PrismaAnalyticsRepository(prisma))
+  : undefined;
+const dashboard = env.DEFAULT_WORKSPACE_ID
+  ? new PrismaDashboardRepository(prisma)
   : undefined;
 const scheduler =
   env.REDIS_URL && flags.ENABLE_SCHEDULED_PUBLISHING
@@ -345,6 +349,7 @@ const app = buildApp({
   ...(creative ? { creative } : {}),
   ...(operations ? { operations } : {}),
   ...(analytics ? { analytics } : {}),
+  ...(dashboard ? { dashboard } : {}),
   readiness: async () => {
     let database = "unavailable",
       redis = "not_configured",
@@ -391,6 +396,11 @@ const app = buildApp({
         pinterest: await pinterestReadiness(flags.ENABLE_PINTEREST_PILOT,integrations,env.DEFAULT_WORKSPACE_ID),
         meta: "optional",
       },
+      externalPublishing:
+        flags.ENABLE_REAL_PINTEREST_PUBLISHING ||
+        flags.ENABLE_REAL_FACEBOOK_PUBLISHING
+          ? "enabled"
+          : "disabled",
     };
   },
   ...(env.DEFAULT_WORKSPACE_ID

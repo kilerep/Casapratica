@@ -8,4 +8,5 @@ export * from "./facebook-strategy-repository.js";
 export * from "./creative-studio-repository.js";
 export * from "./operations-repository.js";
 export * from "./analytics-repository.js";
+export * from "./dashboard-repository.js";
 export type DatabaseRepository = { readonly kind: "postgresql" };
