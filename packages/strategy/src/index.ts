@@ -1,4 +1,5 @@
 export * from "./research.js";
+export * from "./discovery.js";
 export * from "./content-engine.js";
 export * from "./pinterest-strategy.js";
 export * from "./creative-config.js";

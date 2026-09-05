@@ -1,0 +1,8 @@
+import { describe, expect, it, vi } from "vitest";
+import { CASA_PRATICA_CATEGORIES, MERCADO_LIVRE_CATEGORY_MAP, ProductDiscoveryService, calculateOpportunityScore } from "./discovery.js";
+describe("ProductDiscoveryService",()=>{
+  it("mantém as dez categorias no nicho CasaPrática",()=>{expect(CASA_PRATICA_CATEGORIES).toHaveLength(10);expect(Object.keys(MERCADO_LIVRE_CATEGORY_MAP)).toEqual([...CASA_PRATICA_CATEGORIES])});
+  it("calcula OpportunityScore separado do ProductScore",()=>{const score=calculateOpportunityScore({term:"organizador",categoryExternalId:"MLB1574",trendPosition:1,highlightPosition:null,highlightedItemIds:[],rawSourceReferences:[]});expect(score.score).toBe(100);expect(score).not.toHaveProperty("confidence")});
+  it("retorna fallback sem fonte e não pesquisa",async()=>{const service=new ProductDiscoveryService(null,null);await expect(service.run("w")).resolves.toMatchObject({connected:false,message:"Mercado Livre ainda não conectado."})});
+  it("reutiliza o research engine e limita temas",async()=>{const source={marketplace:"mercadolivre",discover:vi.fn().mockResolvedValue([{term:"organizador",categoryExternalId:"MLB1574",trendPosition:1,highlightPosition:null,highlightedItemIds:[],rawSourceReferences:[]}])},research={research:vi.fn().mockResolvedValue({id:"r",candidates:[]}),listRuns:vi.fn()};const service=new ProductDiscoveryService(source,research as never),result=await service.run("w");expect(result.connected).toBe(true);expect(research.research).toHaveBeenCalledWith(expect.objectContaining({workspaceId:"w",targetCandidates:20,opportunityScores:expect.any(Object)}))});
+});

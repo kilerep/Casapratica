@@ -6,7 +6,9 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev --parallel",
+    "dev": "node scripts/dev.mjs",
+    "dev:services": "turbo run dev",
+    "dev:check": "node scripts/dev.mjs --check-only",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:e2e": "playwright test",

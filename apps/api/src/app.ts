@@ -184,6 +184,7 @@ interface AssistedPublicationApiService {
   markPublished(workspaceId:string,id:string,actor:string,date:Date):Promise<unknown>;
   history(workspaceId:string):Promise<unknown>;
 }
+interface ProductDiscoveryApiService { run(workspaceId:string):Promise<unknown>; latest(workspaceId:string):Promise<unknown>; opportunities(workspaceId:string):Promise<unknown> }
 type ReadinessResult = {
   status: "ready" | "degraded" | "not_ready";
   database: string;
@@ -210,6 +211,7 @@ export function buildApp(
     productReview?: ProductReviewApiService;
     settingsOverview?: SettingsOverviewApiService;
     assistedPublication?: AssistedPublicationApiService;
+    productDiscovery?: ProductDiscoveryApiService;
     readiness?: () => Promise<ReadinessResult>;
     pinterestPilot?: PinterestPilotService;
     facebookPilot?: FacebookPilotService;
@@ -230,6 +232,7 @@ export function buildApp(
     },
   });
   const webOrigin = options.webOrigin ?? "http://localhost:3000";
+  app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/product-discovery")){reply.header("Cache-Control","no-store");if(request.method==="POST"&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})}});
   app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/assisted-publication")){reply.header("Cache-Control","no-store");if(request.method==="POST"&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})}});
   app.addHook("onRequest",async(request,reply)=>{if(request.url.startsWith("/api/facebook/pilot")){reply.header("Cache-Control","no-store").header("Referrer-Policy","no-referrer");if(request.method==="POST"&&request.headers.origin!==webOrigin)return reply.code(403).send({error:"origin_required"})}});
   app.addHook("onRequest", async (request, reply) => {
@@ -374,6 +377,10 @@ export function buildApp(
   });
   const assistedUnavailable=(reply:FastifyReply)=>reply.code(503).send({error:"assisted_publication_not_configured"});
   app.get("/api/assisted-publication/products",async(_request,reply)=>options.assistedPublication&&options.workspaceId?options.assistedPublication.products(options.workspaceId):assistedUnavailable(reply));
+  const discoveryUnavailable=(reply:FastifyReply)=>reply.code(503).send({status:"not_connected",connected:false,message:"Mercado Livre ainda não conectado.",run:null,opportunities:[]});
+  app.post("/api/product-discovery/run",async(_request,reply)=>options.productDiscovery&&options.workspaceId?options.productDiscovery.run(options.workspaceId):discoveryUnavailable(reply));
+  app.get("/api/product-discovery/latest",async(_request,reply)=>options.productDiscovery&&options.workspaceId?options.productDiscovery.latest(options.workspaceId):discoveryUnavailable(reply));
+  app.get("/api/product-discovery/opportunities",async(_request,reply)=>options.productDiscovery&&options.workspaceId?options.productDiscovery.opportunities(options.workspaceId):discoveryUnavailable(reply));
   app.get("/api/assisted-publication/history",async(_request,reply)=>options.assistedPublication&&options.workspaceId?options.assistedPublication.history(options.workspaceId):assistedUnavailable(reply));
   app.post("/api/assisted-publication/manual-product",async(request,reply)=>{const input=z.object({productUrl:z.url(),affiliateUrl:z.url().nullable().optional(),name:z.string().trim().min(2).max(200),category:z.string().trim().min(2).max(100),price:z.number().nonnegative().nullable().optional(),rating:z.number().min(0).max(5).nullable().optional(),reviewCount:z.number().int().nonnegative().nullable().optional(),seller:z.string().trim().max(160).nullable().optional(),imageUrl:z.url().nullable().optional(),confirmedFacts:z.string().trim().max(2000).nullable().optional()}).safeParse(request.body);if(!input.success)return reply.code(400).send({error:"invalid_manual_product",issues:input.error.issues});if(!options.assistedPublication||!options.workspaceId)return assistedUnavailable(reply);return options.assistedPublication.manualProduct(options.workspaceId,input.data)});
   for(const platform of ["pinterest","facebook"] as const)app.post<{Params:{productId:string}}>(`/api/assisted-publication/:productId/${platform}`,async(request,reply)=>{if(!options.assistedPublication||!options.workspaceId)return assistedUnavailable(reply);try{return await options.assistedPublication.prepare(options.workspaceId,request.params.productId,platform)}catch(error){return reply.code(422).send({error:error instanceof Error?error.message:"assisted_preparation_failed"})}});

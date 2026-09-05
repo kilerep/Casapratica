@@ -54,6 +54,7 @@ import {
   IntegrationProviderRegistry,
   IntegrationService,
   MercadoLivreProductProvider,
+  MercadoLivreDiscoverySource,
   PinterestBoardProvider,
   PinterestPinProvider,
   SharpImageCompositionProvider,
@@ -70,6 +71,7 @@ import {
   FacebookStrategyEngine,
   PinterestStrategyEngine,
   ProductResearchService,
+  ProductDiscoveryService,
   PerformanceIntelligenceService,
   PublishingService,
   TestPublishingProvider,
@@ -125,6 +127,7 @@ let integrations: IntegrationService | undefined;
 let integrationRepository:PrismaIntegrationRepository|undefined;
 let pinterestPilot: PinterestPilotService | undefined;
 let facebookPilot: FacebookPilotService | undefined;
+let productDiscovery: ProductDiscoveryService | undefined;
 const tools = new ToolRegistry();
 const content = env.DEFAULT_WORKSPACE_ID
   ? new ContentEngine(new PrismaContentRepository(prisma))
@@ -323,12 +326,11 @@ if (env.INTEGRATION_ENCRYPTION_KEY && env.DEFAULT_WORKSPACE_ID) {
     const productProvider = new MercadoLivreProductProvider(http, () =>
       integrations!.accessToken(env.DEFAULT_WORKSPACE_ID!, "mercadolivre"),
     );
+    const researchService = new ProductResearchService(productProvider,new PrismaResearchRepository(prisma));
+    productDiscovery = new ProductDiscoveryService(new MercadoLivreDiscoverySource(http,()=>integrations!.accessToken(env.DEFAULT_WORKSPACE_ID!,"mercadolivre")),researchService);
     registerProductResearchTools(
       tools,
-      new ProductResearchService(
-        productProvider,
-        new PrismaResearchRepository(prisma),
-      ),
+      researchService,
       env.DEFAULT_WORKSPACE_ID,
     );
   }
@@ -388,6 +390,7 @@ const app = buildApp({
   ...(dashboard ? { dashboard } : {}),
   ...(productReview ? { productReview } : {}),
   ...(assistedPublication ? { assistedPublication } : {}),
+  ...(productDiscovery ? { productDiscovery } : {}),
   settingsOverview: {
     overview: async () => {
       const readiness = await getReadiness();
@@ -517,7 +520,7 @@ try {
   });
 } catch (error) {
   app.log.error({ err: error }, "API failed to start");
-  process.exitCode = 1;
+  throw error;
 }
 
 async function shutdown(signal: string) {

@@ -1,0 +1,8 @@
+import { describe, expect, it, vi } from "vitest";
+import type { HttpClient } from "../base/provider.js";
+import { MercadoLivreDiscoverySource } from "./discovery-source.js";
+import { MercadoLivreProductProvider } from "./product-provider.js";
+describe("Mercado Livre discovery",()=>{
+  it("normaliza trends e highlights reais sem inventar ranking",async()=>{const request=vi.fn().mockResolvedValueOnce([{keyword:"organizador",url:"trend-url"}]).mockResolvedValueOnce([{keyword:"cozinha"}]).mockResolvedValueOnce([{id:"MLB2",type:"ITEM",position:2},{id:"MLB1",type:"ITEM",position:1}]),source=new MercadoLivreDiscoverySource({request} as HttpClient,async()=>"token");const result=await source.discover(["MLB1574"]);expect(result).toEqual(expect.arrayContaining([expect.objectContaining({term:"organizador",trendPosition:1}),expect.objectContaining({term:"mais vendidos",highlightPosition:1,highlightedItemIds:["MLB1","MLB2"]})]));expect(request).toHaveBeenCalledTimes(3)});
+  it("usa somente os endpoints bulk atuais",async()=>{const request=vi.fn().mockResolvedValueOnce([{code:200,body:{id:"MLB1",title:"Produto",permalink:"https://example.com/p",available_quantity:5}}]).mockResolvedValueOnce([{code:200,body:{id:1,nickname:"Loja",seller_reputation:{level_id:"5_green"}}}]),provider=new MercadoLivreProductProvider({request} as HttpClient,async()=>"token");const [product]=await provider.getProducts(["MLB1"]),[seller]=await provider.getSellers(["1"]);expect(product?.salesCount).toBeNull();expect(seller?.reputation).toBe(100);expect(request.mock.calls.map(call=>call[0].url)).toEqual(["https://api.mercadolibre.com/items/bulk?ids=MLB1","https://api.mercadolibre.com/users/bulk?ids=1"])});
+});

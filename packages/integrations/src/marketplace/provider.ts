@@ -22,3 +22,17 @@ export interface MarketplaceProductProvider {
   getCategories(): Promise<readonly MarketplaceCategory[]>;
   refreshProductData(externalId: string): Promise<MarketplaceProduct | null>;
 }
+
+export interface ProductDiscoverySignal {
+  readonly term: string;
+  readonly categoryExternalId: string | null;
+  readonly trendPosition: number | null;
+  readonly highlightPosition: number | null;
+  readonly highlightedItemIds: readonly string[];
+  readonly rawSourceReferences: readonly string[];
+}
+
+export interface ProductDiscoverySource {
+  readonly marketplace: string;
+  discover(categoryExternalIds: readonly string[]): Promise<readonly ProductDiscoverySignal[]>;
+}

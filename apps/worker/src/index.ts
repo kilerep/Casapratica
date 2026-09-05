@@ -1,7 +1,7 @@
 import { Worker } from "bullmq";
 import { Redis } from "ioredis";
 import pino from "pino";
-import { canUseTestPublishingProvider } from "@casapratica/config";
+import { applyLocalDevelopmentDefaults, canUseTestPublishingProvider } from "@casapratica/config";
 import { workerConfigSchema } from "./config.js";
 import {
   createPrismaClient,
@@ -10,6 +10,7 @@ import {
 import { PublishingService,TestPublishingProvider } from "@casapratica/strategy";
 import { processScheduledPublication } from "./publication-job.js";
 
+applyLocalDevelopmentDefaults(process.env);
 const logger = pino({
   name: "casapratica-worker",
   redact: ["password", "token", "accessToken", "refreshToken", "authorization"],
@@ -47,4 +48,5 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
       process.exitCode = 1;
     });
   });
+await worker.waitUntilReady();
 logger.info("Worker started");

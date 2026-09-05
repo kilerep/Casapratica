@@ -10,5 +10,6 @@ export * from "./meta/index.js";
 export * from "./image/index.js";
 export * from "./mercadolivre/index.js";
 export * from "./mercadolivre/product-provider.js";
+export * from "./mercadolivre/discovery-source.js";
 export * from "./marketplace/provider.js";
 export * from "./pinterest/index.js";
