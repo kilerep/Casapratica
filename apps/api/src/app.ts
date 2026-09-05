@@ -168,6 +168,11 @@ interface AnalyticsApiService {
 interface DashboardApiService {
   snapshot(workspaceId: string): Promise<unknown>;
 }
+interface ProductReviewApiService {
+  list(workspaceId: string): Promise<unknown>;
+  detail(workspaceId: string, id: string): Promise<unknown>;
+  decide(workspaceId: string, id: string, status: "approved" | "test" | "rejected", actorId: string, comment: string | null): Promise<unknown>;
+}
 type ReadinessResult = {
   status: "ready" | "degraded" | "not_ready";
   database: string;
@@ -191,6 +196,7 @@ export function buildApp(
     operations?: OperationsApiService;
     analytics?: AnalyticsApiService;
     dashboard?: DashboardApiService;
+    productReview?: ProductReviewApiService;
     readiness?: () => Promise<ReadinessResult>;
     pinterestPilot?: PinterestPilotService;
     webOrigin?: string;
@@ -209,6 +215,13 @@ export function buildApp(
     },
   });
   const webOrigin = options.webOrigin ?? "http://localhost:3000";
+  app.addHook("onRequest", async (request, reply) => {
+    if (request.url.includes("/review")) {
+      reply.header("Cache-Control", "no-store");
+      if (request.method === "POST" && request.headers.origin !== webOrigin)
+        return reply.code(403).send({ error: "origin_required" });
+    }
+  });
   app.addHook("onRequest", async (request, reply) => {
     if (
       request.url.startsWith("/api/integrations") ||
@@ -327,6 +340,20 @@ export function buildApp(
       return reply.code(503).send({ error: "dashboard_unavailable" });
     }
   });
+  const review = async (reply: FastifyReply, action: () => Promise<unknown>) => {
+    if (!options.productReview || !options.workspaceId) return reply.code(503).send({ error: "product_review_not_configured" });
+    try { return await action(); } catch (error) { return reply.code(error instanceof Error && error.message === "product_not_found" ? 404 : 422).send({ error: error instanceof Error ? error.message : "product_review_failed" }); }
+  };
+  app.get("/api/products/review", (_request, reply) => review(reply, () => options.productReview!.list(options.workspaceId!)));
+  app.get<{ Params: { id: string } }>("/api/products/:id/review", (request, reply) => review(reply, () => options.productReview!.detail(options.workspaceId!, request.params.id)));
+  const decisionBody = z.object({ actorId: z.string().trim().min(1).max(100), comment: z.string().trim().max(1000).nullable().optional() });
+  for (const status of ["approved", "test", "rejected"] as const) {
+    const path = status === "approved" ? "approve" : status === "rejected" ? "reject" : "test";
+    app.post<{ Params: { id: string } }>(`/api/products/:id/review/${path}`, (request, reply) => {
+      const parsed = decisionBody.safeParse(request.body);
+      return parsed.success ? review(reply, () => options.productReview!.decide(options.workspaceId!, request.params.id, status, parsed.data.actorId, parsed.data.comment || null)) : reply.code(400).send({ error: "invalid_request" });
+    });
+  }
   app.post("/api/ai/chat", async (request, reply) => {
     const input = chatRequestSchema.safeParse(request.body);
     if (!input.success)

@@ -34,6 +34,7 @@ import {
   PrismaTraceRepository,
   PrismaAnalyticsRepository,
   PrismaDashboardRepository,
+  PrismaProductReviewRepository,
 } from "@casapratica/database";
 import {
   FacebookPageProvider,
@@ -123,6 +124,9 @@ const analytics = env.DEFAULT_WORKSPACE_ID
   : undefined;
 const dashboard = env.DEFAULT_WORKSPACE_ID
   ? new PrismaDashboardRepository(prisma)
+  : undefined;
+const productReview = env.DEFAULT_WORKSPACE_ID
+  ? new PrismaProductReviewRepository(prisma)
   : undefined;
 const scheduler =
   env.REDIS_URL && flags.ENABLE_SCHEDULED_PUBLISHING
@@ -350,6 +354,7 @@ const app = buildApp({
   ...(operations ? { operations } : {}),
   ...(analytics ? { analytics } : {}),
   ...(dashboard ? { dashboard } : {}),
+  ...(productReview ? { productReview } : {}),
   readiness: async () => {
     let database = "unavailable",
       redis = "not_configured",
