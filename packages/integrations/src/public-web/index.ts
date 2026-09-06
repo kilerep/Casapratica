@@ -1,302 +1,59 @@
 import type { HttpClient } from "../base/provider.js";
 import { ProviderError } from "../base/provider.js";
-import type {
-  MarketplaceProduct,
-  MarketplaceProductProvider,
-  MarketplaceSeller,
-  ProductDiscoverySignal,
-  ProductDiscoverySource,
-  ProductSearchRequest,
-} from "../marketplace/provider.js";
+import type { MarketplaceProduct, MarketplaceProductProvider, MarketplaceSeller, ProductDiscoverySignal, ProductDiscoverySource, ProductSearchRequest } from "../marketplace/provider.js";
 
 type JsonRecord = Record<string, unknown>;
-type CacheEntry = { html: string; observedAt: Date; expiresAt: number };
-const text = (value: unknown) =>
-  typeof value === "string" && value.trim() ? value.trim() : null;
-const number = (value: unknown) =>
-  typeof value === "number" && Number.isFinite(value)
-    ? value
-    : typeof value === "string" &&
-        value.trim() &&
-        Number.isFinite(Number(value.replace(",", ".")))
-      ? Number(value.replace(",", "."))
-      : null;
-const array = (value: unknown): unknown[] =>
-  Array.isArray(value) ? value : [];
-const record = (value: unknown): JsonRecord =>
-  value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : {};
-const absolute = (value: string | null) => {
-  if (!value) return null;
-  try {
-    const url = new URL(value, "https://www.mercadolivre.com.br");
-    return url.protocol === "https:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
-};
-const idFromUrl = (url: string) =>
-  url
-    .match(/MLB-?(\d{6,})/i)?.[0]
-    ?.replace("-", "")
-    .toUpperCase() ??
-  `WEB-${Buffer.from(url).toString("base64url").slice(0, 32)}`;
-const visible = (html: string) =>
-  html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/\s+/g, " ");
-const explicitSales = (value: string) => {
-  const match = value.match(
-    /(?:\+\s*)?([\d.,]+)\s*(mil|milh(?:ão|oes|ões))?\s+vendidos?/i,
-  );
-  if (!match) return null;
-  const base = Number((match[1] ?? "").replace(/\./g, "").replace(",", "."));
-  if (!Number.isFinite(base)) return null;
-  return Math.round(
-    base *
-      (match[2]?.toLowerCase().startsWith("milh")
-        ? 1_000_000
-        : match[2]
-          ? 1_000
-          : 1),
-  );
-};
-function jsonLd(html: string): JsonRecord[] {
-  const values: JsonRecord[] = [];
-  for (const match of html.matchAll(
-    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
-  )) {
-    try {
-      const parsed = JSON.parse(match[1] ?? "");
-      for (const value of array(parsed).length ? array(parsed) : [parsed])
-        values.push(record(value));
-    } catch {
-      /* HTML público alterado: ignorar bloco inválido. */
-    }
-  }
-  return values;
-}
-function productNodes(html: string): JsonRecord[] {
-  const output: JsonRecord[] = [];
-  const visit = (value: unknown) => {
-    if (Array.isArray(value)) return value.forEach(visit);
-    const node = record(value);
-    if (!Object.keys(node).length) return;
-    if (node["@type"] === "Product") output.push(node);
-    if (node.item) visit(node.item);
-    if (node.itemListElement) visit(node.itemListElement);
-    if (node["@graph"]) visit(node["@graph"]);
-  };
-  jsonLd(html).forEach(visit);
-  return output;
-}
-export function parsePublicProducts(
-  html: string,
-  sourceUrl: string,
-  observedAt = new Date(),
-): MarketplaceProduct[] {
-  if (/captcha|robot verification|acesso negado/i.test(visible(html)))
-    throw new ProviderError("CAPABILITY_MISSING", 403);
-  return productNodes(html).flatMap((node) => {
-    const offers = record(
-        Array.isArray(node.offers) ? node.offers[0] : node.offers,
-      ),
-      aggregate = record(node.aggregateRating),
-      brand = record(node.brand),
-      seller = record(offers.seller),
-      url = absolute(text(node.url) ?? text(offers.url) ?? sourceUrl),
-      name = text(node.name),
-      image = array(node.image).length
-        ? absolute(text(array(node.image)[0]))
-        : absolute(text(node.image)),
-      price = number(offers.price ?? offers.lowPrice),
-      rating = number(aggregate.ratingValue),
-      reviewCount = number(aggregate.reviewCount ?? aggregate.ratingCount),
-      productText = JSON.stringify(node),
-      salesCount = explicitSales(productText);
-    if (!url || !name) return [];
-    const official = /loja oficial/i.test(productText),
-      leader = /mercado\s*l[ií]der/i.test(productText),
-      best = /mais vendido/i.test(productText);
-    const missingFields = [
-      ...[
-        price === null ? "price" : null,
-        rating === null ? "rating" : null,
-        reviewCount === null ? "reviewCount" : null,
-        text(seller.name) === null ? "seller" : null,
-        salesCount === null ? "salesCount" : null,
-        image === null ? "images" : null,
-      ],
-    ].filter((v): v is string => v !== null);
-    return [
-      {
-        externalId: idFromUrl(url),
-        name,
-        description: text(node.description),
-        canonicalUrl: url,
-        price,
-        currency: text(offers.priceCurrency),
-        categoryExternalId: text(node.category),
-        rating,
-        reviewCount: reviewCount === null ? null : Math.round(reviewCount),
-        salesCount,
-        salesEvidence: salesCount === null ? null : "PUBLIC_VISIBLE_TEXT",
-        observedAt,
-        sellerExternalId: null,
-        sellerName: text(seller.name) ?? text(brand.name),
-        sellerReputation: null,
-        images: image ? [image] : [],
-        availability: text(offers.availability),
-        commission: null,
-        freeShipping: /frete gr[aá]tis/i.test(productText) ? true : null,
-        isBestSeller: best ? true : null,
-        isMercadoLider: leader ? true : null,
-        isOfficialStore: official ? true : null,
-        missingFields,
-        rawSourceReference: `public_web:${sourceUrl}#observedAt=${observedAt.toISOString()}`,
-      },
-    ];
-  });
-}
+export type PublicProductEvidenceSource = "JSON_LD" | "EMBEDDED_JSON" | "HTML_ITEM";
+type Evidence<T> = { value: T; source: PublicProductEvidenceSource };
+export interface PublicProductCandidateRaw { id: Evidence<string>; url: Evidence<string>; title: Evidence<string>; image: Evidence<string> | null; price: Evidence<number> | null; rating: Evidence<number> | null; reviewCount: Evidence<number> | null; seller: Evidence<string> | null; sales: Evidence<number> | null; freeShipping: Evidence<boolean> | null; bestSeller: Evidence<boolean> | null; mercadoLider: Evidence<boolean> | null; officialStore: Evidence<boolean> | null; description: string | null; currency: string | null; category: string | null; availability: string | null }
+export type PublicWebDiscoveryStatus = "success" | "partial_success" | "no_results" | "no_structured_products" | "source_unavailable";
+export interface PublicWebDiscoveryDiagnostics { status: PublicWebDiscoveryStatus; requests: number; accessibleResponses: number; failedResponses: number; noResultResponses: number; unstructuredResponses: number; candidates: number }
+type CacheEntry = { products: readonly MarketplaceProduct[]; expiresAt: number };
 
-export class PublicWebProductDiscoverySource
-  implements ProductDiscoverySource, MarketplaceProductProvider
-{
+const SEARCH_TERMS: Readonly<Record<string, readonly string[]>> = {
+  "organização": ["organizador casa", "utilidades organização"], cozinha: ["organizador cozinha", "utensílios cozinha"], banheiro: ["organizador banheiro", "acessórios banheiro"], quarto: ["organizador quarto", "organizador guarda roupa"], sala: ["organizador sala", "utilidades sala"], lavanderia: ["organização lavanderia", "cesto roupa"], limpeza: ["utilidades limpeza", "organizador produtos limpeza"], "casa pequena": ["organizador casa pequena", "móveis compactos"], decoração: ["decoração casa", "organizador decorativo"], utilidades: ["utilidades casa", "produtos úteis casa"],
+};
+const record = (value: unknown): JsonRecord => value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
+const values = (value: unknown): unknown[] => Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
+const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;
+const numeric = (value: unknown) => { if (typeof value === "number" && Number.isFinite(value)) return value; if (typeof value !== "string") return null; const clean = value.trim().replace(/[^\d,.-]/g, ""); if (!clean) return null; const normalized = clean.includes(",") ? clean.replace(/\./g, "").replace(",", ".") : clean; const parsed = Number(normalized); return Number.isFinite(parsed) ? parsed : null; };
+const decodeHtml = (value: string) => value.replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/&amp;/gi, "&").replace(/&nbsp;/gi, " ").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">");
+const visible = (html: string) => decodeHtml(html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")).trim();
+const normalizeUrl = (value: string | null) => { if (!value) return null; try { const url = new URL(decodeHtml(value), "https://www.mercadolivre.com.br"); if (url.protocol !== "https:" || !/(^|\.)mercadolivre\.com\.br$/i.test(url.hostname)) return null; for (const key of ["position", "search_layout", "type", "tracking_id", "wid", "sid", "matt_tool", "matt_word"]) url.searchParams.delete(key); url.hash = ""; return url.toString(); } catch { return null; } };
+const productId = (url: string, explicit?: unknown) => { const explicitMatch = text(explicit)?.toUpperCase().match(/MLB-?(\d{6,})/); const urlMatch = url.match(/(?:MLB-?|\/p\/MLB)(\d{6,})/i); const digits = explicitMatch?.[1] ?? urlMatch?.[1]; return digits ? `MLB${digits}` : null; };
+const explicitSales = (value: string) => { const match = value.match(/(?:\+\s*)?([\d.,]+)\s*(mil|milh(?:ão|oes|ões))?\s+vendidos?/i); if (!match) return null; const base = numeric(match[1]); if (base === null) return null; return Math.round(base * (match[2]?.toLowerCase().startsWith("milh") ? 1_000_000 : match[2] ? 1_000 : 1)); };
+const evidence = <T>(value: T, source: PublicProductEvidenceSource): Evidence<T> => ({ value, source });
+
+function rawFromRecord(node: JsonRecord, source: PublicProductEvidenceSource): PublicProductCandidateRaw | null {
+  const offers = record(values(node.offers)[0]), aggregate = record(node.aggregateRating), seller = record(offers.seller), brand = record(node.brand), url = normalizeUrl(text(node.url) ?? text(node.permalink) ?? text(offers.url)), title = text(node.name) ?? text(node.title), id = url ? productId(url, node.productID ?? node.sku ?? node.id) : null;
+  if (!url || !title || !id) return null;
+  const imageValue = values(node.image ?? node.thumbnail ?? node.thumbnail_url).map(item => text(record(item).url) ?? text(item)).find((item): item is string => Boolean(item?.startsWith("https://"))) ?? null;
+  const priceValue = numeric(offers.price ?? offers.lowPrice ?? node.price), ratingValue = numeric(aggregate.ratingValue ?? node.rating_average ?? node.rating), reviewsValue = numeric(aggregate.reviewCount ?? aggregate.ratingCount ?? node.reviews), serialized = JSON.stringify(node), salesValue = explicitSales(serialized), sellerName = text(seller.name) ?? text(brand.name);
+  return { id: evidence(id, source), url: evidence(url, source), title: evidence(title, source), image: imageValue ? evidence(imageValue, source) : null, price: priceValue === null ? null : evidence(priceValue, source), rating: ratingValue === null ? null : evidence(ratingValue, source), reviewCount: reviewsValue === null ? null : evidence(Math.round(reviewsValue), source), seller: sellerName ? evidence(sellerName, source) : null, sales: salesValue === null ? null : evidence(salesValue, source), freeShipping: /frete gr[aá]tis/i.test(serialized) ? evidence(true, source) : null, bestSeller: /mais vendido/i.test(serialized) ? evidence(true, source) : null, mercadoLider: /mercado\s*l[ií]der/i.test(serialized) ? evidence(true, source) : null, officialStore: /loja oficial/i.test(serialized) ? evidence(true, source) : null, description: text(node.description), currency: text(offers.priceCurrency ?? node.currency_id) ?? (priceValue === null ? null : "BRL"), category: text(node.category ?? node.category_id), availability: text(offers.availability ?? node.condition) };
+}
+function parsedScripts(html: string, jsonLdOnly: boolean) { const parsed: unknown[] = []; for (const match of html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/gi)) { const attributes = match[1] ?? "", isJsonLd = /type=["']application\/ld\+json["']/i.test(attributes); if (jsonLdOnly !== isJsonLd) continue; if (!jsonLdOnly && !/type=["']application\/json["']|id=["'][^"']*(?:data|state|initial|render)[^"']*["']/i.test(attributes)) continue; try { parsed.push(JSON.parse(match[2] ?? "")); } catch { /* Código JS e JSON inválido são ignorados. */ } } return parsed; }
+function rawFromTrees(trees: readonly unknown[], source: PublicProductEvidenceSource) { const output: PublicProductCandidateRaw[] = []; let visited = 0; const visit = (value: unknown) => { if (++visited > 20_000) return; if (Array.isArray(value)) return value.forEach(visit); const node = record(value); if (!Object.keys(node).length) return; const type = text(node["@type"]); if (source === "JSON_LD" ? type === "Product" : Boolean(node.url || node.permalink)) { const candidate = rawFromRecord(node, source); if (candidate) output.push(candidate); } Object.values(node).forEach(visit); }; trees.forEach(visit); return output; }
+const attribute = (html: string, name: string) => decodeHtml(html.match(new RegExp(`${name}=["']([^"']+)["']`, "i"))?.[1] ?? "") || null;
+function currentPrice(container: string) { for (const match of container.matchAll(/class=["'][^"']*andes-money-amount__fraction[^"']*["'][^>]*>([\s\S]*?)<\//gi)) { const index = match.index ?? 0, context = container.slice(Math.max(0, index - 250), index + 500); if (/previous|original|installment|cuota|parcela/i.test(context.slice(0, 250))) continue; const fraction = visible(match[1] ?? "").replace(/\D/g, ""), cents = visible(context.match(/class=["'][^"']*andes-money-amount__cents[^"']*["'][^>]*>([\s\S]*?)<\//i)?.[1] ?? "").replace(/\D/g, ""), parsed = numeric(`${fraction}${cents ? `,${cents}` : ""}`); if (parsed !== null) return parsed; } return null; }
+function rawFromHtml(html: string) { const containers = [...html.matchAll(/<li\b[^>]*class=["'][^"']*ui-search-layout__item[^"']*["'][^>]*>[\s\S]*?<\/li>/gi), ...html.matchAll(/<article\b[^>]*>[\s\S]*?<\/article>/gi)]; return containers.flatMap(match => { const container = match[0], titleAnchor = container.match(/<a\b[^>]*class=["'][^"']*(?:poly-component__title|ui-search-item__group__element)[^"']*["'][^>]*>[\s\S]*?<\/a>/i), url = normalizeUrl(attribute(titleAnchor?.[0] ?? container, "href")), title = titleAnchor ? visible(titleAnchor[0]) : null, id = url ? productId(url) : null; if (!url || !title || !id) return []; const imageTag = container.match(/<img\b[^>]*>/i)?.[0] ?? "", image = attribute(imageTag, "data-src") ?? attribute(imageTag, "src"), itemText = visible(container), rating = numeric(container.match(/(?:poly-reviews__rating|ui-search-reviews__rating)[^>]*>([\d,.]+)/i)?.[1]), reviews = numeric(container.match(/(?:poly-reviews__total|ui-search-reviews__amount)[^>]*>\s*\(?([\d.]+)\)?/i)?.[1]), price = currentPrice(container), sales = explicitSales(itemText); return [{ id: evidence(id, "HTML_ITEM"), url: evidence(url, "HTML_ITEM"), title: evidence(title, "HTML_ITEM"), image: image?.startsWith("https://") ? evidence(image, "HTML_ITEM") : null, price: price === null ? null : evidence(price, "HTML_ITEM"), rating: rating === null ? null : evidence(rating, "HTML_ITEM"), reviewCount: reviews === null ? null : evidence(Math.round(reviews), "HTML_ITEM"), seller: null, sales: sales === null ? null : evidence(sales, "HTML_ITEM"), freeShipping: /frete gr[aá]tis/i.test(itemText) ? evidence(true, "HTML_ITEM") : null, bestSeller: /mais vendido/i.test(itemText) ? evidence(true, "HTML_ITEM") : null, mercadoLider: /mercado\s*l[ií]der/i.test(itemText) ? evidence(true, "HTML_ITEM") : null, officialStore: /loja oficial/i.test(itemText) ? evidence(true, "HTML_ITEM") : null, description: null, currency: price === null ? null : "BRL", category: null, availability: null } satisfies PublicProductCandidateRaw]; }); }
+function toProduct(candidate: PublicProductCandidateRaw, sourceUrl: string, observedAt: Date): MarketplaceProduct { const missingFields = [!candidate.price ? "price" : null, !candidate.rating ? "rating" : null, !candidate.reviewCount ? "reviewCount" : null, !candidate.seller ? "seller" : null, !candidate.sales ? "salesCount" : null, !candidate.image ? "images" : null].filter((value): value is string => value !== null); return { externalId: candidate.id.value, name: candidate.title.value, description: candidate.description, canonicalUrl: candidate.url.value, price: candidate.price?.value ?? null, currency: candidate.currency, categoryExternalId: candidate.category, rating: candidate.rating?.value ?? null, reviewCount: candidate.reviewCount?.value ?? null, salesCount: candidate.sales?.value ?? null, salesEvidence: candidate.sales ? "PUBLIC_VISIBLE_TEXT" : null, observedAt, sellerExternalId: null, sellerName: candidate.seller?.value ?? null, sellerReputation: null, images: candidate.image ? [candidate.image.value] : [], availability: candidate.availability, commission: null, freeShipping: candidate.freeShipping?.value ?? null, isBestSeller: candidate.bestSeller?.value ?? null, isMercadoLider: candidate.mercadoLider?.value ?? null, isOfficialStore: candidate.officialStore?.value ?? null, missingFields, rawSourceReference: `public_web:${sourceUrl}#item=${candidate.id.value}&observedAt=${observedAt.toISOString()}` }; }
+export function parsePublicProducts(html: string, sourceUrl: string, observedAt = new Date()) { const pageText = visible(html); if (/captcha|robot verification|acesso negado/i.test(pageText)) throw new ProviderError("CAPABILITY_MISSING", 403); const layers = [rawFromTrees(parsedScripts(html, true), "JSON_LD"), rawFromTrees(parsedScripts(html, false), "EMBEDDED_JSON"), rawFromHtml(html)], selected = layers.find(layer => layer.length) ?? [], products = selected.map(candidate => toProduct(candidate, sourceUrl, observedAt)); return [...new Map(products.map(product => [product.externalId, product])).values()]; }
+
+export class PublicWebProductDiscoverySource implements ProductDiscoverySource, MarketplaceProductProvider {
   readonly marketplace = "public_web";
   private readonly cache = new Map<string, CacheEntry>();
-  private active = 0;
-  private readonly waiters: (() => void)[] = [];
-  constructor(
-    private readonly http: HttpClient,
-    private readonly now = () => new Date(),
-    private readonly ttlMs = 30 * 60_000,
-  ) {}
-  async resolveCategories(terms: readonly string[]) {
-    return Object.fromEntries(
-      terms.map((term) => [term, term.replace(/^produtos para /i, "")]),
-    );
-  }
-  async discover(
-    categories: readonly string[],
-  ): Promise<readonly ProductDiscoverySignal[]> {
-    const unique = [...new Set(categories)],
-      offset =
-        Math.floor(this.now().getTime() / 86_400_000) %
-        Math.max(unique.length, 1),
-      selected = Array.from(
-        { length: Math.min(5, unique.length) },
-        (_, index) => unique[(offset + index * 2) % unique.length]!,
-      ),
-      results = await this.mapLimited(selected, (category) =>
-        this.searchProducts({
-          query: `produtos para ${category}`,
-          limit: 5,
-        }).catch(() => []),
-      );
-    return selected.flatMap((category, index) => {
-      const products = results[index] ?? [];
-      return products.length
-        ? [
-            {
-              term: `produtos para ${category}`,
-              categoryExternalId: category,
-              trendPosition: null,
-              highlightPosition: products.some(
-                (product) => product.isBestSeller,
-              )
-                ? 1
-                : null,
-              highlightedItemIds: products.map((p) => p.externalId),
-              rawSourceReferences: [
-                ...new Set(products.map((p) => p.rawSourceReference)),
-              ],
-            },
-          ]
-        : [];
-    });
-  }
-  async searchProducts(request: ProductSearchRequest) {
-    const url = `https://lista.mercadolivre.com.br/${encodeURIComponent(request.query).replace(/%20/g, "-")}`,
-      entry = await this.load(url);
-    return parsePublicProducts(entry.html, url, entry.observedAt).slice(
-      0,
-      request.limit,
-    );
-  }
-  async getProduct(externalId: string) {
-    for (const entry of this.cache.values()) {
-      const found = parsePublicProducts(
-        entry.html,
-        "https://www.mercadolivre.com.br",
-        entry.observedAt,
-      ).find((p) => p.externalId === externalId);
-      if (found) return found;
-    }
-    return null;
-  }
-  async getProducts(ids: readonly string[]) {
-    return (await Promise.all(ids.map((id) => this.getProduct(id)))).filter(
-      (v): v is MarketplaceProduct => v !== null,
-    );
-  }
-  async getSeller(_id: string): Promise<MarketplaceSeller | null> {
-    return null;
-  }
-  async getSellers(_ids: readonly string[]) {
-    return [];
-  }
-  async getCategories() {
-    return [];
-  }
-  refreshProductData(id: string) {
-    return this.getProduct(id);
-  }
-  private async load(url: string) {
-    const cached = this.cache.get(url),
-      now = this.now();
-    if (cached && cached.expiresAt > now.getTime()) return cached;
-    const html = await this.limited(() =>
-      this.http.request<string>({
-        url,
-        method: "GET",
-        responseType: "text",
-        timeoutMs: 5_000,
-        headers: {
-          "User-Agent":
-            "CasaPratica/1.0 (+https://casapratica-web.vercel.app/)",
-        },
-      }),
-    );
-    const entry = {
-      html,
-      observedAt: now,
-      expiresAt: now.getTime() + this.ttlMs,
-    };
-    this.cache.set(url, entry);
-    return entry;
-  }
-  private async limited<T>(fn: () => Promise<T>) {
-    if (this.active >= 2)
-      await new Promise<void>((resolve) => this.waiters.push(resolve));
-    this.active++;
-    try {
-      return await fn();
-    } finally {
-      this.active--;
-      this.waiters.shift()?.();
-    }
-  }
-  private async mapLimited<T, R>(
-    values: readonly T[],
-    fn: (v: T) => Promise<R>,
-  ) {
-    const result: R[] = [];
-    for (const value of values) result.push(await fn(value));
-    return result;
-  }
+  private readonly outcomes = new Map<string, "products" | "no_results" | "no_structured_products">();
+  private diagnostics: PublicWebDiscoveryDiagnostics = { status: "no_structured_products", requests: 0, accessibleResponses: 0, failedResponses: 0, noResultResponses: 0, unstructuredResponses: 0, candidates: 0 };
+  constructor(private readonly http: HttpClient, private readonly now = () => new Date(), private readonly ttlMs = 30 * 60_000) {}
+  lastDiscoveryDiagnostics() { return this.diagnostics; }
+  async resolveCategories(terms: readonly string[]) { return Object.fromEntries(terms.map(term => [term, term.replace(/^produtos para /i, "")])); }
+  async discover(categories: readonly string[]): Promise<readonly ProductDiscoverySignal[]> { const unique = [...new Set(categories)], offset = Math.floor(this.now().getTime() / 86_400_000) % Math.max(unique.length, 1), selected = Array.from({ length: Math.min(5, unique.length) }, (_, index) => unique[(offset + index * 2) % unique.length]!), signals: ProductDiscoverySignal[] = []; let requests = 0, accessibleResponses = 0, failedResponses = 0, noResultResponses = 0, unstructuredResponses = 0, candidates = 0; for (const category of selected) { for (const term of SEARCH_TERMS[category] ?? [`produtos para ${category}`]) { if (requests >= 10 || candidates >= 20) break; requests++; try { const products = await this.searchProducts({ query: term, limit: Math.min(5, 20 - candidates) }); accessibleResponses++; const outcome = this.outcomes.get(term); if (outcome === "no_results") noResultResponses++; if (outcome === "no_structured_products") unstructuredResponses++; if (!products.length) continue; candidates += products.length; signals.push({ term, categoryExternalId: category, trendPosition: null, highlightPosition: products.some(product => product.isBestSeller) ? 1 : null, highlightedItemIds: products.map(product => product.externalId), rawSourceReferences: [...new Set(products.map(product => product.rawSourceReference))] }); break; } catch { failedResponses++; } } if (requests >= 10 || candidates >= 20) break; } const status: PublicWebDiscoveryStatus = candidates ? failedResponses || unstructuredResponses ? "partial_success" : "success" : accessibleResponses ? unstructuredResponses ? "no_structured_products" : "no_results" : "source_unavailable"; this.diagnostics = { status, requests, accessibleResponses, failedResponses, noResultResponses, unstructuredResponses, candidates }; return signals; }
+  async searchProducts(request: ProductSearchRequest) { const url = `https://lista.mercadolivre.com.br/${encodeURIComponent(request.query).replace(/%20/g, "-")}`, cached = this.cache.get(url), now = this.now(); if (cached && cached.expiresAt > now.getTime()) return cached.products.slice(0, request.limit); const html = await this.http.request<string>({ url, method: "GET", responseType: "text", timeoutMs: 5_000, headers: { "User-Agent": "CasaPratica/1.0 (+https://casapratica-web.vercel.app/)" } }); const pageText = visible(html); if (/captcha|robot verification|acesso negado|para continuar, acesse sua conta|já tenho conta/i.test(pageText)) throw new ProviderError("CAPABILITY_MISSING", 403); const products = parsePublicProducts(html, url, now), outcome = products.length ? "products" : /nenhum resultado|não encontramos resultados|sem resultados/i.test(pageText) ? "no_results" : "no_structured_products"; this.outcomes.set(request.query, outcome); this.cache.set(url, { products, expiresAt: now.getTime() + this.ttlMs }); return products.slice(0, request.limit); }
+  async getProduct(externalId: string) { return this.cachedProducts().find(product => product.externalId === externalId) ?? null; }
+  async getProducts(ids: readonly string[]) { const wanted = new Set(ids); return this.cachedProducts().filter(product => wanted.has(product.externalId)); }
+  async getSeller(_id: string): Promise<MarketplaceSeller | null> { return null; }
+  async getSellers(_ids: readonly string[]) { return []; }
+  async getCategories() { return []; }
+  refreshProductData(id: string) { return this.getProduct(id); }
+  private cachedProducts() { return [...this.cache.values()].flatMap(entry => entry.products); }
 }

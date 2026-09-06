@@ -7,6 +7,7 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "node scripts/dev.mjs",
+    "start:casapratica": "node scripts/start-casapratica.mjs",
     "dev:stop": "node scripts/dev-stop.mjs",
     "doctor": "node scripts/doctor.mjs",
     "dev:services": "turbo run dev",

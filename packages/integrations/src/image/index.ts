@@ -1,6 +1,5 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import sharp from "sharp";
 import type { BrandKit, CreativeOutput } from "@casapratica/domain";
 
 export interface ImageCompositionProvider {
@@ -14,6 +13,7 @@ export class SharpImageCompositionProvider implements ImageCompositionProvider {
   constructor(private readonly outputRoot: string) {}
 
   async compose(input: { sourcePath: string; outputKey: string; output: CreativeOutput; brandKit: BrandKit }) {
+    const { default: sharp } = await import("sharp");
     const { width, height } = input.output.size;
     const destination = resolve(this.outputRoot, input.outputKey);
     await mkdir(dirname(destination), { recursive: true });

@@ -61,8 +61,9 @@ export function calculateOpportunityScore(
 }
 export type DiscoveryRunResult =
   | {
-      status: "completed";
+      status: "completed" | "partial_success";
       connected: true;
+      message: string | null;
       run: SavedResearchRun;
       opportunities: readonly {
         term: string;
@@ -71,8 +72,12 @@ export type DiscoveryRunResult =
       }[];
     }
   | {
-      status: "not_connected" | "source_unavailable";
-      connected: false;
+      status:
+        | "not_connected"
+        | "source_unavailable"
+        | "no_results"
+        | "no_structured_products";
+      connected: boolean;
       message: string;
       run: null;
       opportunities: readonly [];
@@ -107,8 +112,13 @@ export class ProductDiscoveryService {
         ? this.sourceUnavailable()
         : this.notConnected();
     }
+    const diagnostics = this.source.lastDiscoveryDiagnostics?.();
     if (!signals.length && this.source.marketplace === "public_web")
-      return this.sourceUnavailable();
+      return diagnostics?.status === "no_structured_products"
+        ? this.noStructuredProducts()
+        : diagnostics?.status === "no_results"
+          ? this.noResults()
+          : this.sourceUnavailable();
     const ranked = CASA_PRATICA_CATEGORIES.flatMap((category) =>
         signals
           .filter(
@@ -118,9 +128,11 @@ export class ProductDiscoveryService {
           )
           .map((signal) => ({
             term:
-              signal.term === "mais vendidos"
-                ? category
-                : `${signal.term} ${category}`,
+              this.source?.marketplace === "public_web"
+                ? signal.term
+                : signal.term === "mais vendidos"
+                  ? category
+                  : `${signal.term} ${category}`,
             category,
             signal,
             score: calculateOpportunityScore(signal),
@@ -149,8 +161,15 @@ export class ProductDiscoveryService {
       targetCandidates: 20,
     });
     return {
-      status: "completed",
+      status:
+        diagnostics?.status === "partial_success"
+          ? "partial_success"
+          : "completed",
       connected: true,
+      message:
+        diagnostics?.status === "partial_success"
+          ? "Pesquisa concluída com cobertura parcial."
+          : null,
       run,
       opportunities: ranked.map(({ term, category, score }) => ({
         term,
@@ -189,6 +208,25 @@ export class ProductDiscoveryService {
       status: "source_unavailable",
       connected: false,
       message: "SOURCE_UNAVAILABLE" as const,
+      run: null,
+      opportunities: [],
+    };
+  }
+  private noStructuredProducts(): DiscoveryRunResult {
+    return {
+      status: "no_structured_products",
+      connected: true,
+      message:
+        "Nenhum produto confiável foi encontrado nesta busca. Tentando outras categorias.",
+      run: null,
+      opportunities: [],
+    };
+  }
+  private noResults(): DiscoveryRunResult {
+    return {
+      status: "no_results",
+      connected: true,
+      message: "A busca foi concluída, mas não retornou produtos.",
       run: null,
       opportunities: [],
     };

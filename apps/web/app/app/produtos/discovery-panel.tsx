@@ -10,7 +10,12 @@ type Run = {
   provider?: string;
   date?: string;
 };
-type Result = { connected?: boolean; message?: string; run?: Run | null };
+type Result = {
+  status?: string;
+  connected?: boolean;
+  message?: string | null;
+  run?: Run | null;
+};
 export function DiscoveryPanel() {
   const [result, setResult] = useState<Result | null>(null),
     [loading, setLoading] = useState(false);
@@ -52,13 +57,28 @@ export function DiscoveryPanel() {
           {loading ? "Pesquisando…" : "PESQUISAR PRODUTOS DE HOJE"}
         </button>
       </div>
-      {result?.connected === false ? (
+      {result?.status === "source_unavailable" ||
+      result?.connected === false ? (
         <p className="friendly-empty">
           Fonte pública indisponível no momento. Tente novamente mais tarde ou
           use o cadastro manual.
         </p>
+      ) : result?.status === "no_structured_products" ? (
+        <p className="friendly-empty">
+          Nenhum produto confiável foi encontrado nesta busca. Tentando outras
+          categorias.
+        </p>
+      ) : result?.status === "no_results" ? (
+        <p className="friendly-empty">
+          A busca foi concluída, mas não retornou produtos.
+        </p>
       ) : result?.run ? (
         <>
+          {result.status === "partial_success" && (
+            <p className="startup-note">
+              Pesquisa concluída com cobertura parcial.
+            </p>
+          )}
           <p>
             <strong>Fonte:</strong>{" "}
             {isPublic

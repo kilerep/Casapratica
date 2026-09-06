@@ -18,10 +18,6 @@ import {
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 import {
-  AIChatService,
-  createCasaPraticaAgentSystem,
-  loadAgentPrompts,
-  OpenAIManagerRunner,
   registerContentOperationsTools,
   registerAnalyticsTools,
   registerContentTools,
@@ -30,7 +26,8 @@ import {
   registerPinterestStrategyTools,
   registerProductResearchTools,
   ToolRegistry,
-} from "@casapratica/agents";
+} from "@casapratica/agents/tool-registry";
+import type { AIChatService } from "@casapratica/agents/chat-service";
 import {
   createPrismaClient,
   PrismaContentRepository,
@@ -49,6 +46,7 @@ import {
   PrismaMetaPageRepository,
   PrismaAssistedPublicationRepository,
   PrismaWorkspaceRepository,
+  PrismaProductImportRepository,
 } from "@casapratica/database";
 import {
   FacebookPageProvider,
@@ -86,6 +84,20 @@ import {
   ProductDiscoveryRoutingService,
   type DiscoveryChoice,
 } from "./product-discovery-routing.js";
+import { ProductImportService } from "./product-import.js";
+
+const startupMemory = (stage: string) => {
+  if (process.env.DEBUG_STARTUP_MEMORY !== "1") return;
+  const memory = process.memoryUsage();
+  const mb = (bytes: number) => Math.round((bytes / 1024 / 1024) * 10) / 10;
+  console.info(`[startup-memory] ${stage}`, {
+    rss: mb(memory.rss),
+    heapUsed: mb(memory.heapUsed),
+    heapTotal: mb(memory.heapTotal),
+    external: mb(memory.external),
+    arrayBuffers: mb(memory.arrayBuffers),
+  });
+};
 
 const loadEnvironmentIfPresent = (path: string) => {
   try {
@@ -137,6 +149,7 @@ const env = z
     NEXT_PUBLIC_CONTACT_EMAIL: z.string().email().optional(),
   })
   .parse(process.env);
+startupMemory("BOOT 1 config");
 const prisma = createPrismaClient();
 const flags = loadFeatureFlags(process.env);
 const mercadoLivreEnabled =
@@ -147,6 +160,7 @@ const operationalWorkspace = await resolveOperationalWorkspace(
   new PrismaWorkspaceRepository(prisma),
   { configuredId: env.DEFAULT_WORKSPACE_ID, mode: operationalMode },
 );
+startupMemory("BOOT 2 database");
 env.DEFAULT_WORKSPACE_ID = operationalWorkspace.id;
 let integrations: IntegrationService | undefined;
 let integrationRepository: PrismaIntegrationRepository | undefined;
@@ -197,6 +211,16 @@ const dashboard = env.DEFAULT_WORKSPACE_ID
   : undefined;
 const productReview = env.DEFAULT_WORKSPACE_ID
   ? new PrismaProductReviewRepository(prisma)
+  : undefined;
+const productImport = env.DEFAULT_WORKSPACE_ID
+  ? new ProductImportService(
+      (provider) =>
+        new ProductResearchService(
+          provider,
+          new PrismaResearchRepository(prisma),
+        ),
+      new PrismaProductImportRepository(prisma),
+    )
   : undefined;
 const assistedPublication = content
   ? new AssistedPublicationService(
@@ -446,6 +470,7 @@ if (env.INTEGRATION_ENCRYPTION_KEY && env.DEFAULT_WORKSPACE_ID) {
     );
   }
 }
+startupMemory("BOOT 3 integrations");
 if (pinterest && env.DEFAULT_WORKSPACE_ID)
   registerPinterestStrategyTools(tools, pinterest, env.DEFAULT_WORKSPACE_ID);
 if (facebook && env.DEFAULT_WORKSPACE_ID)
@@ -477,6 +502,15 @@ if (analytics && env.DEFAULT_WORKSPACE_ID)
   registerAnalyticsTools(tools, analytics, env.DEFAULT_WORKSPACE_ID);
 let aiChat: AIChatService | undefined;
 if (env.OPENAI_API_KEY && env.DEFAULT_WORKSPACE_ID) {
+  const [
+    { AIChatService },
+    { createCasaPraticaAgentSystem, OpenAIManagerRunner },
+    { loadAgentPrompts },
+  ] = await Promise.all([
+    import("@casapratica/agents/chat-service"),
+    import("@casapratica/agents/agent-system"),
+    import("@casapratica/agents/load-prompts"),
+  ]);
   const system = createCasaPraticaAgentSystem(await loadAgentPrompts(), tools);
   aiChat = new AIChatService(
     new PrismaConversationSessionRepository(prisma),
@@ -485,10 +519,12 @@ if (env.OPENAI_API_KEY && env.DEFAULT_WORKSPACE_ID) {
     env.DEFAULT_WORKSPACE_ID,
   );
 }
+startupMemory("BOOT 4 services");
 const app = buildApp({
   webOrigin: env.WEB_ORIGIN,
   ...(env.OAUTH_PUBLIC_HOST ? { publicOAuthHost: env.OAUTH_PUBLIC_HOST } : {}),
   mercadoLivreEnabled,
+  ...(productImport ? { productImport } : {}),
   ...(pinterestPilot ? { pinterestPilot } : {}),
   ...(facebookPilot ? { facebookPilot } : {}),
   ...(env.META_CLIENT_SECRET && integrationRepository
@@ -642,6 +678,7 @@ const app = buildApp({
     ? { workspaceId: env.DEFAULT_WORKSPACE_ID }
     : {}),
 });
+startupMemory("BOOT 5 routes");
 async function getReadiness() {
   let database = "unavailable",
     redis = "not_configured",
@@ -706,6 +743,7 @@ try {
     host: flags.ENABLE_PINTEREST_PILOT ? "127.0.0.1" : env.API_HOST,
     port: env.API_PORT,
   });
+  startupMemory("BOOT READY");
 } catch (error) {
   app.log.error({ err: error }, "API failed to start");
   throw error;

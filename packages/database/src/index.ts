@@ -13,4 +13,5 @@ export * from "./product-review-repository.js";
 export * from "./meta-page-repository.js";
 export * from "./assisted-publication-repository.js";
 export * from "./workspace-repository.js";
+export * from "./product-import-repository.js";
 export type DatabaseRepository = { readonly kind: "postgresql" };

@@ -15,6 +15,8 @@ docker compose -f infra/docker-compose.yml up -d
 npx pnpm@latest dev
 ```
 
+Ou use o inicializador único, que não exige ngrok: `npx pnpm@latest start:casapratica`.
+
 Abra `http://127.0.0.1:3000/app`. Essa é a tela principal do operador.
 
 Para diagnosticar e parar:

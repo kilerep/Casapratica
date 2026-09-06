@@ -1,0 +1,7 @@
+import{execFileSync,spawn}from"node:child_process";
+import{resolvePnpmViaNpxCommand}from"./package-manager-command.mjs";
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+try{execFileSync("docker",["info"],{stdio:"ignore"});execFileSync("docker",["compose","-f","infra/docker-compose.yml","up","-d"],{stdio:"inherit"})}catch{console.error("Abra o Docker Desktop e execute novamente.");process.exit(1)}
+let healthy=false;for(let attempt=0;attempt<60;attempt++){try{const value=execFileSync("docker",["compose","-f","infra/docker-compose.yml","ps","--format","json"],{encoding:"utf8",stdio:["ignore","pipe","ignore"]});const rows=value.trim().split(/\r?\n/).filter(Boolean).map(line=>JSON.parse(line));healthy=rows.length>=2&&rows.every(row=>row.Health==="healthy"||row.State==="running");if(healthy)break}catch{}await wait(1000)}
+if(!healthy){console.error("PostgreSQL/Redis não ficaram healthy. Execute npx pnpm@latest doctor.");process.exit(1)}
+const invocation=resolvePnpmViaNpxCommand({script:"dev"});const child=spawn(invocation.command,invocation.args,{stdio:"inherit",env:process.env});const terminate=()=>{if(!child.pid||child.exitCode!==null)return;if(process.platform==="win32")spawn("taskkill",["/pid",String(child.pid),"/T","/F"],{stdio:"ignore",windowsHide:true});else child.kill("SIGTERM")};for(const signal of["SIGINT","SIGTERM"])process.once(signal,terminate);child.once("exit",code=>process.exitCode=code??1);

@@ -22,15 +22,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-  oauth-tunnel:
-    image: ngrok/ngrok:3-alpine
-    profiles: ["oauth-tunnel"]
-    restart: unless-stopped
-    command: ["http", "http://host.docker.internal:3001", "--url", "https://${NGROK_DOMAIN:?configure NGROK_DOMAIN}", "--inspect=false", "--log", "stdout", "--log-format", "json"]
-    environment:
-      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:?configure NGROK_AUTHTOKEN outside Git}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 volumes:
   postgres-data:
   redis-data:

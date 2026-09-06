@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { InternalNav } from "../../internal-nav";
 import { ProductImage } from "../publicar/product-image";
+import { ZoeImportPanel } from "./zoe-import-panel";
 const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001",
   missing = "Dado não disponível";
 type P = {
@@ -115,6 +116,7 @@ export default function ProductsReviewPage() {
             editorial.
           </p>
         </header>
+        <ZoeImportPanel onImported={load} />
         <section className="review-filters" aria-label="Filtros">
           <label>
             Status

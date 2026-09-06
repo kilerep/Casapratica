@@ -3,7 +3,8 @@ import type { PinterestPilotService } from "./pinterest-pilot.js";
 import type { FacebookPilotService } from "./facebook-pilot.js";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import type { CreativeRequest } from "@casapratica/domain";
-import { chatRequestSchema, type AIChatService } from "@casapratica/agents";
+import { chatRequestSchema } from "@casapratica/agents/contracts";
+import type { AIChatService } from "@casapratica/agents/chat-service";
 import type {
   IntegrationService,
   ProviderName,
@@ -219,6 +220,10 @@ interface ProductDiscoveryApiService {
   latest(workspaceId: string): Promise<unknown>;
   opportunities(workspaceId: string): Promise<unknown>;
 }
+interface ProductImportApiService {
+  validate(input: unknown): unknown;
+  commit(workspaceId: string, actorId: string, input: unknown): Promise<unknown>;
+}
 type ReadinessResult = {
   status: "ready" | "degraded" | "not_ready";
   database: string;
@@ -246,6 +251,7 @@ export function buildApp(
     settingsOverview?: SettingsOverviewApiService;
     assistedPublication?: AssistedPublicationApiService;
     productDiscovery?: ProductDiscoveryApiService;
+    productImport?: ProductImportApiService;
     mercadoLivreEnabled?: boolean;
     readiness?: () => Promise<ReadinessResult>;
     pinterestPilot?: PinterestPilotService;
@@ -330,7 +336,10 @@ export function buildApp(
       return reply.code(403).send({ error: "origin_required" });
   });
   app.addHook("onRequest", async (request, reply) => {
-    if (request.url.startsWith("/api/product-discovery")) {
+    if (
+      request.url.startsWith("/api/product-discovery") ||
+      request.url.startsWith("/api/product-import")
+    ) {
       reply.header("Cache-Control", "no-store");
       const origin = request.headers.origin;
       if (origin && allowedWebOrigins.has(origin))
@@ -641,6 +650,24 @@ export function buildApp(
       ? options.productDiscovery.opportunities(options.workspaceId)
       : discoveryUnavailable(reply),
   );
+  app.post("/api/product-import/validate", async (request, reply) => {
+    if (!options.productImport || !options.workspaceId)
+      return reply.code(503).send({ error: "product_import_unavailable" });
+    return options.productImport.validate(request.body);
+  });
+  app.post("/api/product-import/commit", async (request, reply) => {
+    if (!options.productImport || !options.workspaceId)
+      return reply.code(503).send({ error: "product_import_unavailable" });
+    const parsed = z.object({ actorId: z.string().trim().min(2).max(100), payload: z.unknown() }).strict().safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_import_request" });
+    try {
+      return await options.productImport.commit(options.workspaceId, parsed.data.actorId, parsed.data.payload);
+    } catch (error) {
+      if (error instanceof Error && error.message === "invalid_product_import")
+        return reply.code(400).send({ error: error.message });
+      throw error;
+    }
+  });
   app.get("/api/assisted-publication/history", async (_request, reply) =>
     options.assistedPublication && options.workspaceId
       ? options.assistedPublication.history(options.workspaceId)

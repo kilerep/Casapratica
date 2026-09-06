@@ -34,7 +34,7 @@ ENABLE_MERCADOLIVRE_INTEGRATION=true
 ## Inicialização e validação
 
 1. Inicie Postgres, Redis e a API normalmente.
-2. Inicie apenas o perfil adicional: `docker compose -f infra/docker-compose.yml --profile oauth-tunnel up -d oauth-tunnel`.
+2. Somente se quiser testar OAuth futuro, use o arquivo totalmente separado: `docker compose -f infra/docker-compose.oauth.yml --profile oauth-tunnel up -d oauth-tunnel`.
 3. Confirme `https://SEU-DOMINIO-ATRIBUIDO.ngrok-free.app/health`; deve retornar `{"status":"ok"}`.
 4. Confirme que `/api/products/review` no mesmo hostname retorna 404.
 5. Abra `/integrations` na Vercel e confirme que conectar redireciona ao domínio oficial `auth.mercadolivre.com.br` com a redirect URI HTTPS exata.

@@ -6,6 +6,7 @@ export const marketplaceProductSchema = z.object({
   name: z.string().min(1),
   description: z.string().nullable(),
   canonicalUrl: z.url(),
+  affiliateUrl: z.url().nullable().optional(),
   price: z.number().nonnegative().nullable(),
   currency: z.string().length(3).nullable(),
   categoryExternalId: z.string().nullable(),
@@ -78,4 +79,18 @@ export interface ProductDiscoverySource {
   discover(
     categoryExternalIds: readonly string[],
   ): Promise<readonly ProductDiscoverySignal[]>;
+  lastDiscoveryDiagnostics?(): {
+    status:
+      | "success"
+      | "partial_success"
+      | "no_results"
+      | "no_structured_products"
+      | "source_unavailable";
+    requests: number;
+    accessibleResponses: number;
+    failedResponses: number;
+    noResultResponses: number;
+    unstructuredResponses: number;
+    candidates: number;
+  };
 }

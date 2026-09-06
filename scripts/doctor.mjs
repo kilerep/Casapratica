@@ -1,4 +1,5 @@
 import {execFileSync} from "node:child_process";import {createConnection} from "node:net";import {existsSync} from "node:fs";
+process.on("beforeExit",()=>console.log("INFO NGROK/OAUTH TUNNEL — opcional / não configurado"));
 const line=(state,name,detail="")=>console.log(`${state} ${name}${detail?` — ${detail}`:""}`),tcp=port=>new Promise(resolve=>{const s=createConnection({host:"127.0.0.1",port}),done=v=>{s.destroy();resolve(v)};s.setTimeout(1200);s.once("connect",()=>done(true));s.once("error",()=>done(false));s.once("timeout",()=>done(false))}),http=async url=>{try{const response=await fetch(url,{signal:AbortSignal.timeout(1800)});return{ok:response.ok,response}}catch{return{ok:false}}};
 try{execFileSync("docker",["info"],{stdio:"ignore"});line("OK","Docker")}catch{line("ERRO","Docker","inicie o Docker Desktop")}
 for(const[name,port]of[["Web (porta 3000)",3000],["API (porta 3001)",3001],["PostgreSQL (porta 5432)",5432],["Redis (porta 6379)",6379]]){const open=await tcp(port);line(open?"OK":"AÇÃO NECESSÁRIA",name,open?"em uso":"serviço não iniciado")}
