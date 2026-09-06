@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceProductProvider } from "@casapratica/integrations";
-import { ProductResearchService, allocateCategoryTargets, generateWinnerQueries, scoreCandidate, verdictFor, type ResearchRepository, type SavedResearchRun } from "./research.js";
+import { ProductResearchService, allocateCategoryTargets, generateWinnerQueries, scoreCandidate, verdictFor, zoeVerdictFor, type ResearchRepository, type SavedResearchRun } from "./research.js";
 import { completeFixture, sparseFixture } from "./fixtures.js";
 
 class MemoryRepository implements ResearchRepository { runs: SavedResearchRun[] = []; async save(run: Omit<SavedResearchRun, "id">) { const value = { ...run, id: "run-1" }; this.runs.push(value); return value; } async list() { return this.runs; } async getCandidate(_workspaceId: string, externalId: string) { return this.runs.flatMap(run => run.candidates).find(value => value.product.externalId === externalId) ?? null; } async setProductStatus() {} }
@@ -17,4 +17,12 @@ describe("product research", () => {
   it("mantém diversidade no peso de categorias", () => { const allocation = allocateCategoryTargets(["Organização", "Cozinha", "Outras"], { Organização: 35, Cozinha: 25, Outras: 40 }, 20); expect(allocation.Organização).toBeGreaterThan(0); expect(allocation.Cozinha).toBeGreaterThan(0); expect(Object.values(allocation).reduce((a, b) => a + b, 0)).toBe(20); });
   it("carrega highlights por bulk e enriquece vendedores por bulk", async () => { const highlighted=variant("MLB-HIGHLIGHT",79,{sellerExternalId:"42",sellerName:null,sellerReputation:null}),getProducts=vi.fn().mockResolvedValue([highlighted]),getSellers=vi.fn().mockResolvedValue([{externalId:"42",name:"Loja Oficial",reputation:100,rawSourceReference:"mercadolivre:user:42"}]),base=provider([]),repository=new MemoryRepository(),service=new ProductResearchService({...base,getProducts,getSellers},repository);const run=await service.research({workspaceId:"workspace",queries:["organizador"],seedExternalIds:["MLB-HIGHLIGHT"]});expect(getProducts).toHaveBeenCalledWith(["MLB-HIGHLIGHT"]);expect(getSellers).toHaveBeenCalledWith(["42"]);expect(run.candidates[0]?.product).toMatchObject({externalId:"MLB-HIGHLIGHT",sellerName:"Loja Oficial",sellerReputation:100})});
   it("busca similares apenas para vencedores com venda, sem confundir clique", () => { expect(generateWinnerQueries([{ name: "Cesto", conversions: 0, clicks: 500 }, { name: "Panela", conversions: 2 }])).toEqual(["produtos similares a Panela"]); });
+  describe("veredito ZOE_WEB_RESEARCH", () => {
+    const fixedScore = (score: number, confidence: number) => ({ score, confidence, factorScores: {}, availableFactors: [], missingFactors: [], explanation: "fixture" });
+    const partial = () => variant("ZOE1", 79, { sellerName: "Loja", sellerReputation: null, salesCount: null, reviewCount: 120, missingFields: ["salesCount", "sellerReputation"] });
+    it("caso A: aprova score 88, confidence 65% e dados parciais", () => { const product = partial(); expect(zoeVerdictFor(product, fixedScore(88, .65), [product])).toBe("APROVADO PARA REVISÃO"); });
+    it("caso B: trata score 79, confidence 40% e dados parciais como oportunidade", () => { const product = partial(); expect(zoeVerdictFor(product, fixedScore(79, .4), [product])).toBe("OPORTUNIDADE PARA REVISÃO"); });
+    it("caso C: rejeita score 55 e confidence 30%", () => { const product = partial(); expect(zoeVerdictFor(product, fixedScore(55, .3), [product])).toBe("NÃO RECOMENDADO"); });
+    it("caso D: risco crítico prevalece sobre score alto", () => { const product = variant("ZOE-RISK", 79, { canonicalUrl: "https://localhost/product" }); expect(zoeVerdictFor(product, fixedScore(95, .9), [product])).toBe("NÃO RECOMENDADO"); });
+  });
 });
