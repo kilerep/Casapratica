@@ -1,8 +1,76 @@
-import{afterEach,describe,expect,it,vi}from"vitest";import{buildApp}from"./app.js";
-const apps:ReturnType<typeof buildApp>[]=[];afterEach(()=>Promise.all(apps.splice(0).map(app=>app.close())));
-describe("product discovery endpoints",()=>{
- it("expõe fallback sem integração como estado de negócio e aceita preflight local",async()=>{const app=buildApp({workspaceId:"w"});apps.push(app);const preflight=await app.inject({method:"OPTIONS",url:"/api/product-discovery/run",headers:{origin:"http://127.0.0.1:3000","access-control-request-method":"POST","access-control-request-headers":"content-type"}});expect(preflight.statusCode).toBe(204);expect(preflight.headers["access-control-allow-origin"]).toBe("http://127.0.0.1:3000");const response=await app.inject({method:"POST",url:"/api/product-discovery/run",headers:{origin:"http://127.0.0.1:3000"}});expect(response.statusCode).toBe(200);expect(response.json()).toMatchObject({status:"not_connected",connected:false,message:"Mercado Livre ainda não conectado."})});
- it("rejeita preflight de origem externa",async()=>{const app=buildApp({workspaceId:"w"});apps.push(app);expect((await app.inject({method:"OPTIONS",url:"/api/product-discovery/run",headers:{origin:"https://malicioso.example"}})).statusCode).toBe(403)});
- it("permite leituras operacionais somente para a origem local",async()=>{const app=buildApp({workspaceId:"w"});apps.push(app);const response=await app.inject({url:"/api/integrations",headers:{origin:"http://127.0.0.1:3000"}});expect(response.statusCode).toBe(200);expect(response.headers["access-control-allow-origin"]).toBe("http://127.0.0.1:3000");expect(response.json()).toEqual(expect.arrayContaining([expect.objectContaining({provider:"mercadolivre",connected:false})]))});
- it("expõe run, latest e opportunities sem qualquer serviço social",async()=>{const service={run:vi.fn().mockResolvedValue({connected:true,run:{id:"r"}}),latest:vi.fn().mockResolvedValue({id:"r"}),opportunities:vi.fn().mockResolvedValue([])},app=buildApp({workspaceId:"w",productDiscovery:service});apps.push(app);expect((await app.inject({method:"POST",url:"/api/product-discovery/run",headers:{origin:"http://localhost:3000"}})).statusCode).toBe(200);expect((await app.inject({url:"/api/product-discovery/latest"})).json()).toEqual({id:"r"});expect((await app.inject({url:"/api/product-discovery/opportunities"})).json()).toEqual([])});
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildApp } from "./app.js";
+const apps: ReturnType<typeof buildApp>[] = [];
+afterEach(() => Promise.all(apps.splice(0).map((app) => app.close())));
+describe("product discovery endpoints", () => {
+  it("expõe fonte indisponível como estado de negócio e aceita preflight local", async () => {
+    const app = buildApp({ workspaceId: "w" });
+    apps.push(app);
+    const preflight = await app.inject({
+      method: "OPTIONS",
+      url: "/api/product-discovery/run",
+      headers: {
+        origin: "http://127.0.0.1:3000",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type",
+      },
+    });
+    expect(preflight.statusCode).toBe(204);
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/product-discovery/run",
+      headers: { origin: "http://127.0.0.1:3000" },
+    });
+    expect(response.json()).toMatchObject({
+      status: "source_unavailable",
+      connected: false,
+    });
+  });
+  it("rejeita origem externa", async () => {
+    const app = buildApp({ workspaceId: "w" });
+    apps.push(app);
+    expect(
+      (
+        await app.inject({
+          method: "OPTIONS",
+          url: "/api/product-discovery/run",
+          headers: { origin: "https://malicioso.example" },
+        })
+      ).statusCode,
+    ).toBe(403);
+  });
+  it("encaminha auto, official e public_web sem serviços sociais", async () => {
+    const service = {
+        run: vi.fn().mockResolvedValue({ connected: true, run: { id: "r" } }),
+        latest: vi.fn().mockResolvedValue({ id: "r" }),
+        opportunities: vi.fn().mockResolvedValue([]),
+      },
+      app = buildApp({ workspaceId: "w", productDiscovery: service });
+    apps.push(app);
+    for (const source of ["auto", "official", "public_web"]) {
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: "/api/product-discovery/run",
+            headers: { origin: "http://localhost:3000" },
+            payload: { source },
+          })
+        ).statusCode,
+      ).toBe(200);
+    }
+    expect(service.run.mock.calls.map((call) => call[1])).toEqual([
+      "auto",
+      "official",
+      "public_web",
+    ]);
+    expect(
+      (await app.inject({ url: "/api/product-discovery/latest" })).json(),
+    ).toEqual({ id: "r" });
+    expect(
+      (
+        await app.inject({ url: "/api/product-discovery/opportunities" })
+      ).json(),
+    ).toEqual([]);
+  });
 });

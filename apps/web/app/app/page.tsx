@@ -1,17 +1,179 @@
 "use client";
 import Link from "next/link";
-import {useCallback,useEffect,useState} from "react";
-import {InternalNav} from "../internal-nav";
-import {OperationalStartupCheck} from "./operational-startup-check";
-const api=process.env.NEXT_PUBLIC_API_URL??"http://localhost:3001";
-type Ready={status:"ready"|"degraded"|"not_ready";database:string;redis:string;worker:string;integrations:Record<string,string>};
-type Integration={provider:string;status:string;connected?:boolean};
-type Snapshot={products:{awaitingReview:number;approved:number;opportunities:number|null};creatives:{id:string}[]};
-type Daily={prepared:number;needsReview:number};
-async function request<T>(path:string,acceptStatus=false){const response=await fetch(`${api}${path}`,{cache:"no-store"});if(!response.ok&&!acceptStatus)throw new Error(path);return response.json()as Promise<T>}
-export default function DashboardPage(){
- const[ready,setReady]=useState<Ready|null>(null),[apiOk,setApiOk]=useState<boolean|null>(null),[integrations,setIntegrations]=useState<Integration[]>([]),[snapshot,setSnapshot]=useState<Snapshot|null>(null),[assistedOk,setAssistedOk]=useState<boolean|null>(null),[discoveryOk,setDiscoveryOk]=useState<boolean|null>(null),[working,setWorking]=useState(false),[notice,setNotice]=useState("");
- const load=useCallback(async()=>{const v=await Promise.allSettled([request<{status:string}>("/health"),request<Ready>("/ready",true),request<Integration[]>("/api/integrations"),request<Snapshot>("/api/dashboard"),request<unknown[]>("/api/assisted-publication/products"),request<{connected?:boolean}>("/api/product-discovery/latest")]);setApiOk(v[0].status==="fulfilled");if(v[1].status==="fulfilled")setReady(v[1].value);if(v[2].status==="fulfilled")setIntegrations(v[2].value);if(v[3].status==="fulfilled")setSnapshot(v[3].value);setAssistedOk(v[4].status==="fulfilled");setDiscoveryOk(v[5].status==="fulfilled"&&v[5].value.connected!==false)},[]);
- useEffect(()=>{void load()},[load]);
- const workToday=async()=>{setWorking(true);setNotice("");try{const discoveryResponse=await fetch(`${api}/api/product-discovery/run`,{method:"POST"}),discovery=await discoveryResponse.json().catch(()=>({}))as{connected?:boolean};if(!discoveryResponse.ok)throw new Error("discovery_failed");const withoutMercadoLivre=discovery.connected===false,response=await fetch(`${api}/api/operations/daily/run`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({date:new Date().toISOString()})});if(response.ok){const value=await response.json()as{summary?:Daily},summary=value.summary?`${value.summary.prepared} conteúdo(s) preparado(s); ${value.summary.needsReview} aguardando revisão.`:"O trabalho de hoje foi verificado.";setNotice(withoutMercadoLivre?`Mercado Livre ainda não conectado. ${summary} Adicione um produto manualmente para continuar.`:`${summary} Nada foi publicado automaticamente.`)}else setNotice(withoutMercadoLivre?"Mercado Livre ainda não conectado. Adicione um produto manualmente para continuar.":"Não foi possível concluir agora. Abra Configurações para verificar o núcleo operacional.");await load()}catch{setNotice("Não foi possível acessar o núcleo do sistema. Abra Configurações para verificar o que precisa de atenção.")}finally{setWorking(false)}};
- return <div className="internal-shell"><InternalNav/><main className="dashboard-main"><header className="dashboard-welcome"><div><span className="dashboard-kicker">Seu dia no CasaPrática</span><h1>O que você precisa fazer agora?</h1><p>Pesquise, revise e prepare conteúdo em um fluxo simples. A publicação continua manual.</p></div><button onClick={()=>void workToday()} disabled={working}>{working?"Verificando o dia…":"TRABALHE O DIA DE HOJE"}</button></header>{notice&&<p className="operator-notice" role="status">{notice}</p>}<OperationalStartupCheck apiOk={apiOk} ready={ready} integrations={integrations} assistedOk={assistedOk} discoveryOk={discoveryOk}/><div className="operator-steps"><Link href="/app/produtos"><span>1</span><strong>Pesquisar e revisar produtos</strong><small>{snapshot?.products.awaitingReview??0} aguardando revisão · cadastro manual disponível</small></Link><Link href="/app/publicar"><span>2</span><strong>Preparar Pinterest e Facebook</strong><small>{snapshot?.products.approved??0} produtos aprovados · {snapshot?.creatives.length??0} conteúdos recentes</small></Link></div><section className="dashboard-panel"><div className="panel-heading"><div><span className="dashboard-kicker">Resumo</span><h2>Hoje</h2></div></div><div className="metric-grid"><div className="metric"><strong>{snapshot?.products.awaitingReview??"—"}</strong><span>Para revisar</span></div><div className="metric"><strong>{snapshot?.products.approved??"—"}</strong><span>Produtos aprovados</span></div><div className="metric"><strong>{snapshot?.products.opportunities??"—"}</strong><span>Oportunidades</span></div><div className="metric"><strong>{snapshot?.creatives.length??"—"}</strong><span>Conteúdos prontos</span></div></div></section></main></div>}
+import { useCallback, useEffect, useState } from "react";
+import { InternalNav } from "../internal-nav";
+import { OperationalStartupCheck } from "./operational-startup-check";
+const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+type Ready = {
+  status: "ready" | "degraded" | "not_ready";
+  database: string;
+  redis: string;
+  worker: string;
+  integrations: Record<string, string>;
+};
+type Integration = { provider: string; status: string; connected?: boolean };
+type Snapshot = {
+  products: {
+    awaitingReview: number;
+    approved: number;
+    opportunities: number | null;
+  };
+  creatives: { id: string }[];
+};
+type Daily = { prepared: number; needsReview: number };
+async function request<T>(path: string, acceptStatus = false) {
+  const response = await fetch(`${api}${path}`, { cache: "no-store" });
+  if (!response.ok && !acceptStatus) throw new Error(path);
+  return response.json() as Promise<T>;
+}
+export default function DashboardPage() {
+  const [ready, setReady] = useState<Ready | null>(null),
+    [apiOk, setApiOk] = useState<boolean | null>(null),
+    [integrations, setIntegrations] = useState<Integration[]>([]),
+    [snapshot, setSnapshot] = useState<Snapshot | null>(null),
+    [assistedOk, setAssistedOk] = useState<boolean | null>(null),
+    [discoveryOk, setDiscoveryOk] = useState<boolean | null>(null),
+    [working, setWorking] = useState(false),
+    [notice, setNotice] = useState("");
+  const load = useCallback(async () => {
+    const v = await Promise.allSettled([
+      request<{ status: string }>("/health"),
+      request<Ready>("/ready", true),
+      request<Integration[]>("/api/integrations"),
+      request<Snapshot>("/api/dashboard"),
+      request<unknown[]>("/api/assisted-publication/products"),
+      request<{ connected?: boolean }>("/api/product-discovery/latest"),
+    ]);
+    setApiOk(v[0].status === "fulfilled");
+    if (v[1].status === "fulfilled") setReady(v[1].value);
+    if (v[2].status === "fulfilled") setIntegrations(v[2].value);
+    if (v[3].status === "fulfilled") setSnapshot(v[3].value);
+    setAssistedOk(v[4].status === "fulfilled");
+    setDiscoveryOk(
+      v[5].status === "fulfilled" && v[5].value.connected !== false,
+    );
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const workToday = async () => {
+    setWorking(true);
+    setNotice("");
+    try {
+      const discoveryResponse = await fetch(
+          `${api}/api/product-discovery/run`,
+          { method: "POST" },
+        ),
+        discovery = (await discoveryResponse.json().catch(() => ({}))) as {
+          connected?: boolean;
+          run?: { provider?: string };
+        };
+      if (!discoveryResponse.ok) throw new Error("discovery_failed");
+      const usingPublicWeb = discovery.run?.provider === "public_web",
+        response = await fetch(`${api}/api/operations/daily/run`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ date: new Date().toISOString() }),
+        });
+      if (response.ok) {
+        const value = (await response.json()) as { summary?: Daily },
+          summary = value.summary
+            ? `${value.summary.prepared} conteúdo(s) preparado(s); ${value.summary.needsReview} aguardando revisão.`
+            : "O trabalho de hoje foi verificado.";
+        setNotice(
+          usingPublicWeb
+            ? `Usando pesquisa pública. A integração oficial ainda não está conectada. ${summary}`
+            : `${summary} Nada foi publicado automaticamente.`,
+        );
+      } else
+        setNotice(
+          usingPublicWeb
+            ? "A pesquisa pública não encontrou candidatos agora. Tente novamente mais tarde ou use o cadastro manual."
+            : "Não foi possível concluir agora. Abra Configurações para verificar o núcleo operacional.",
+        );
+      await load();
+    } catch {
+      setNotice(
+        "Não foi possível acessar o núcleo do sistema. Abra Configurações para verificar o que precisa de atenção.",
+      );
+    } finally {
+      setWorking(false);
+    }
+  };
+  return (
+    <div className="internal-shell">
+      <InternalNav />
+      <main className="dashboard-main">
+        <header className="dashboard-welcome">
+          <div>
+            <span className="dashboard-kicker">Seu dia no CasaPrática</span>
+            <h1>O que você precisa fazer agora?</h1>
+            <p>
+              Pesquise, revise e prepare conteúdo em um fluxo simples. A
+              publicação continua manual.
+            </p>
+          </div>
+          <button onClick={() => void workToday()} disabled={working}>
+            {working ? "Verificando o dia…" : "TRABALHE O DIA DE HOJE"}
+          </button>
+        </header>
+        {notice && (
+          <p className="operator-notice" role="status">
+            {notice}
+          </p>
+        )}
+        <OperationalStartupCheck
+          apiOk={apiOk}
+          ready={ready}
+          integrations={integrations}
+          assistedOk={assistedOk}
+          discoveryOk={discoveryOk}
+        />
+        <div className="operator-steps">
+          <Link href="/app/produtos">
+            <span>1</span>
+            <strong>Pesquisar e revisar produtos</strong>
+            <small>
+              {snapshot?.products.awaitingReview ?? 0} aguardando revisão ·
+              cadastro manual disponível
+            </small>
+          </Link>
+          <Link href="/app/publicar">
+            <span>2</span>
+            <strong>Preparar Pinterest e Facebook</strong>
+            <small>
+              {snapshot?.products.approved ?? 0} produtos aprovados ·{" "}
+              {snapshot?.creatives.length ?? 0} conteúdos recentes
+            </small>
+          </Link>
+        </div>
+        <section className="dashboard-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="dashboard-kicker">Resumo</span>
+              <h2>Hoje</h2>
+            </div>
+          </div>
+          <div className="metric-grid">
+            <div className="metric">
+              <strong>{snapshot?.products.awaitingReview ?? "—"}</strong>
+              <span>Para revisar</span>
+            </div>
+            <div className="metric">
+              <strong>{snapshot?.products.approved ?? "—"}</strong>
+              <span>Produtos aprovados</span>
+            </div>
+            <div className="metric">
+              <strong>{snapshot?.products.opportunities ?? "—"}</strong>
+              <span>Oportunidades</span>
+            </div>
+            <div className="metric">
+              <strong>{snapshot?.creatives.length ?? "—"}</strong>
+              <span>Conteúdos prontos</span>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}

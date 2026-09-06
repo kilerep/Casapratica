@@ -16,6 +16,7 @@ describe("GET /health", () => {
     },
     15_000,
   );
+  it("limita o hostname OAuth público ao health e Mercado Livre",async()=>{const app=buildApp({publicOAuthHost:"fixed-domain.ngrok-free.app"});apps.push(app);expect((await app.inject({url:"/health",headers:{host:"fixed-domain.ngrok-free.app"}})).statusCode).toBe(200);expect((await app.inject({url:"/api/products/review",headers:{host:"fixed-domain.ngrok-free.app"}})).statusCode).toBe(404);expect((await app.inject({url:"/api/products/review",headers:{host:"127.0.0.1:3001"}})).statusCode).not.toBe(404)});
   it("generates product and utility content through the service", async () => {
     const content = {
       generateProduct: vi.fn().mockResolvedValue({ id: "c1", status: "draft" }),

@@ -1,15 +1,196 @@
-import type { ProductDiscoverySignal, ProductDiscoverySource } from "@casapratica/integrations";
-import { type OpportunityScore, type ProductResearchService, type SavedResearchRun } from "./research.js";
+import type {
+  ProductDiscoverySignal,
+  ProductDiscoverySource,
+} from "@casapratica/integrations";
+import {
+  type OpportunityScore,
+  type ProductResearchService,
+  type SavedResearchRun,
+} from "./research.js";
 
-export const CASA_PRATICA_CATEGORIES = ["organização", "cozinha", "banheiro", "quarto", "sala", "lavanderia", "limpeza", "casa pequena", "decoração", "utilidades"] as const;
-export const MERCADO_LIVRE_CATEGORY_MAP: Readonly<Record<(typeof CASA_PRATICA_CATEGORIES)[number], string>> = Object.fromEntries(CASA_PRATICA_CATEGORIES.map(value => [value, "MLB1574"])) as Record<(typeof CASA_PRATICA_CATEGORIES)[number], string>;
+export const CASA_PRATICA_CATEGORIES = [
+  "organização",
+  "cozinha",
+  "banheiro",
+  "quarto",
+  "sala",
+  "lavanderia",
+  "limpeza",
+  "casa pequena",
+  "decoração",
+  "utilidades",
+] as const;
+export const MERCADO_LIVRE_CATEGORY_MAP: Readonly<
+  Record<(typeof CASA_PRATICA_CATEGORIES)[number], string>
+> = Object.fromEntries(
+  CASA_PRATICA_CATEGORIES.map((value) => [value, "MLB1574"]),
+) as Record<(typeof CASA_PRATICA_CATEGORIES)[number], string>;
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
-export function calculateOpportunityScore(signal: ProductDiscoverySignal, historicalCategoryStrength: number | null = null, seasonalAffinity: number | null = null): OpportunityScore { const trend = signal.trendPosition === null ? null : clamp(105 - signal.trendPosition * 5), highlight = signal.highlightPosition === null ? null : clamp(105 - signal.highlightPosition * 5), factors = { trend, highlight, nicheAffinity: signal.categoryExternalId ? 100 : 70, history: historicalCategoryStrength, seasonality: seasonalAffinity }, available = Object.values(factors).filter((value): value is number => value !== null); return { score: available.length ? Math.round(available.reduce((sum, value) => sum + value, 0) / available.length) : 0, factors, explanation: `Oportunidade baseada em ${available.length} sinal(is) real(is); qualidade do produto é calculada separadamente.` }; }
-export type DiscoveryRunResult = { status: "completed"; connected: true; run: SavedResearchRun; opportunities: readonly { term: string; category: string; score: OpportunityScore }[] } | { status: "not_connected"; connected: false; message: "Mercado Livre ainda não conectado."; run: null; opportunities: readonly [] };
+export function calculateOpportunityScore(
+  signal: ProductDiscoverySignal,
+  historicalCategoryStrength: number | null = null,
+  seasonalAffinity: number | null = null,
+): OpportunityScore {
+  const trend =
+      signal.trendPosition === null
+        ? null
+        : clamp(105 - signal.trendPosition * 5),
+    highlight =
+      signal.highlightPosition === null
+        ? null
+        : clamp(105 - signal.highlightPosition * 5),
+    factors = {
+      trend,
+      highlight,
+      nicheAffinity: signal.categoryExternalId ? 100 : 70,
+      history: historicalCategoryStrength,
+      seasonality: seasonalAffinity,
+    },
+    available = Object.values(factors).filter(
+      (value): value is number => value !== null,
+    );
+  return {
+    score: available.length
+      ? Math.round(
+          available.reduce((sum, value) => sum + value, 0) / available.length,
+        )
+      : 0,
+    factors,
+    explanation: `Oportunidade baseada em ${available.length} sinal(is) real(is); qualidade do produto é calculada separadamente.`,
+  };
+}
+export type DiscoveryRunResult =
+  | {
+      status: "completed";
+      connected: true;
+      run: SavedResearchRun;
+      opportunities: readonly {
+        term: string;
+        category: string;
+        score: OpportunityScore;
+      }[];
+    }
+  | {
+      status: "not_connected" | "source_unavailable";
+      connected: false;
+      message: string;
+      run: null;
+      opportunities: readonly [];
+    };
 export class ProductDiscoveryService {
-  constructor(private readonly source: ProductDiscoverySource | null, private readonly research: ProductResearchService | null) {}
-  async run(workspaceId: string): Promise<DiscoveryRunResult> { if (!this.source || !this.research) return this.notConnected(); const categoryIds = [...new Set(Object.values(MERCADO_LIVRE_CATEGORY_MAP))]; let signals: readonly ProductDiscoverySignal[]; try { signals = await this.source.discover(categoryIds); } catch { return this.notConnected(); } const ranked = CASA_PRATICA_CATEGORIES.flatMap(category => signals.filter(signal => signal.categoryExternalId === MERCADO_LIVRE_CATEGORY_MAP[category] || signal.categoryExternalId === null).map(signal => ({ term: signal.term === "mais vendidos" ? category : `${signal.term} ${category}`, category, score: calculateOpportunityScore(signal) }))).sort((a,b)=>b.score.score-a.score.score).slice(0,10), opportunityScores = Object.fromEntries(ranked.map(value => [value.term,value.score])); const run = await this.research.research({ workspaceId, queries: ranked.map(value=>value.term), categories:[...new Set(ranked.map(value=>value.category))], opportunityScores, targetCandidates:20 }); return { status:"completed", connected:true, run, opportunities:ranked }; }
-  async latest(workspaceId:string) { return (await this.research?.listRuns(workspaceId))?.[0] ?? null; }
-  async opportunities(workspaceId:string) { return (await this.latest(workspaceId))?.candidates.filter(candidate=>candidate.opportunityScore).map(candidate=>({externalId:candidate.product.externalId,name:candidate.product.name,opportunityScore:candidate.opportunityScore,productScore:candidate.score,verdict:candidate.verdict})) ?? []; }
-  private notConnected():DiscoveryRunResult{return{status:"not_connected",connected:false,message:"Mercado Livre ainda não conectado.",run:null,opportunities:[]}}
+  constructor(
+    private readonly source: ProductDiscoverySource | null,
+    private readonly research: ProductResearchService | null,
+  ) {}
+  async run(workspaceId: string): Promise<DiscoveryRunResult> {
+    if (!this.source || !this.research) return this.notConnected();
+    let categoryMap: Readonly<Record<string, string>> =
+      MERCADO_LIVRE_CATEGORY_MAP;
+    let signals: readonly ProductDiscoverySignal[];
+    try {
+      const resolved = await this.source.resolveCategories?.(
+        CASA_PRATICA_CATEGORIES.map((category) => `produtos para ${category}`),
+      );
+      if (resolved) {
+        categoryMap = Object.fromEntries(
+          CASA_PRATICA_CATEGORIES.map((category) => [
+            category,
+            resolved[`produtos para ${category}`] ??
+              MERCADO_LIVRE_CATEGORY_MAP[category],
+          ]),
+        );
+      }
+      const categoryIds = [...new Set(Object.values(categoryMap))];
+      signals = await this.source.discover(categoryIds);
+    } catch {
+      return this.source.marketplace === "public_web"
+        ? this.sourceUnavailable()
+        : this.notConnected();
+    }
+    if (!signals.length && this.source.marketplace === "public_web")
+      return this.sourceUnavailable();
+    const ranked = CASA_PRATICA_CATEGORIES.flatMap((category) =>
+        signals
+          .filter(
+            (signal) =>
+              signal.categoryExternalId === categoryMap[category] ||
+              signal.categoryExternalId === null,
+          )
+          .map((signal) => ({
+            term:
+              signal.term === "mais vendidos"
+                ? category
+                : `${signal.term} ${category}`,
+            category,
+            signal,
+            score: calculateOpportunityScore(signal),
+          })),
+      )
+        .sort((a, b) => b.score.score - a.score.score)
+        .slice(0, 10),
+      opportunityScores = Object.fromEntries(
+        ranked.map((value) => [value.term, value.score]),
+      ),
+      seedExternalIds = [
+        ...new Set(ranked.flatMap((value) => value.signal.highlightedItemIds)),
+      ],
+      opportunityScoresByExternalId = Object.fromEntries(
+        ranked.flatMap((value) =>
+          value.signal.highlightedItemIds.map((id) => [id, value.score]),
+        ),
+      );
+    const run = await this.research.research({
+      workspaceId,
+      queries: ranked.map((value) => value.term),
+      categories: [...new Set(ranked.map((value) => value.category))],
+      opportunityScores,
+      seedExternalIds,
+      opportunityScoresByExternalId,
+      targetCandidates: 20,
+    });
+    return {
+      status: "completed",
+      connected: true,
+      run,
+      opportunities: ranked.map(({ term, category, score }) => ({
+        term,
+        category,
+        score,
+      })),
+    };
+  }
+  async latest(workspaceId: string) {
+    return (await this.research?.listRuns(workspaceId))?.[0] ?? null;
+  }
+  async opportunities(workspaceId: string) {
+    return (
+      (await this.latest(workspaceId))?.candidates
+        .filter((candidate) => candidate.opportunityScore)
+        .map((candidate) => ({
+          externalId: candidate.product.externalId,
+          name: candidate.product.name,
+          opportunityScore: candidate.opportunityScore,
+          productScore: candidate.score,
+          verdict: candidate.verdict,
+        })) ?? []
+    );
+  }
+  private notConnected(): DiscoveryRunResult {
+    return {
+      status: "not_connected",
+      connected: false,
+      message: "Mercado Livre ainda não conectado.",
+      run: null,
+      opportunities: [],
+    };
+  }
+  private sourceUnavailable(): DiscoveryRunResult {
+    return {
+      status: "source_unavailable",
+      connected: false,
+      message: "SOURCE_UNAVAILABLE" as const,
+      run: null,
+      opportunities: [],
+    };
+  }
 }

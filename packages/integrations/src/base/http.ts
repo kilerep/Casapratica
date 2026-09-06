@@ -12,7 +12,7 @@ export class FetchHttpClient implements HttpClient {
       try {
         const response = await (this.options.fetch ?? fetch)(input.url, { method: input.method, signal: controller.signal, ...(input.headers ? { headers: input.headers } : {}), ...(input.body ? { body: input.body } : {}) });
         this.rateLimit.observe(response.headers, response.status);
-        if (response.ok) return response.status === 204 ? undefined as T : response.json() as Promise<T>;
+        if (response.ok) return response.status === 204 ? undefined as T : (input.responseType === "text" ? response.text() : response.json()) as Promise<T>;
         const error = mapStatus(response.status, retryAfterMs(response.headers));
         if (attempt < maxRetries && ["RATE_LIMITED", "PROVIDER_UNAVAILABLE"].includes(error.code)) { await (this.options.wait ?? wait)(error.retryAfterMs ?? 250 * 2 ** attempt); continue; }
         throw error;

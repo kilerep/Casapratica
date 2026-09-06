@@ -43,6 +43,7 @@ Crie aplicativos nas áreas oficiais de desenvolvedores do Pinterest, Meta e Mer
 - Preencha `PINTEREST_CLIENT_ID`, `PINTEREST_CLIENT_SECRET` e `PINTEREST_REDIRECT_URI` no portal Pinterest Developers.
 - Preencha `META_CLIENT_ID`, `META_CLIENT_SECRET`, `META_GRAPH_API_VERSION` e `META_REDIRECT_URI` no Meta for Developers.
 - Preencha `MERCADOLIVRE_CLIENT_ID`, `MERCADOLIVRE_CLIENT_SECRET` e `MERCADOLIVRE_REDIRECT_URI` no portal Mercado Livre Developers.
+- Para OAuth real com a API ainda local, siga `docs/mercadolivre-public-callback.md`; o túnel possui perfil separado e não é iniciado no ambiente local comum.
 - `NEXT_PUBLIC_API_URL` contém apenas a URL pública da API. Secrets, tokens e a chave de criptografia são exclusivos do servidor.
 
 Os recursos dependem dos scopes efetivamente concedidos. `affiliate_link_generation` permanece indisponível até um provider oficial conceder explicitamente esse escopo. Esta fase não publica conteúdo automaticamente.
